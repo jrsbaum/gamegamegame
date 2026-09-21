@@ -150,6 +150,186 @@ export const CARACOL_REGIONAL_EVENTS_CATALOG: CaracolRegionalEventDefinition[] =
     duracaoMs: HORA_MS,
     caracol: { tipo: 'velocidadeMundo', multiplicador: 0.75 },
   },
+
+  // ---- Região Nordeste (T9) ----
+  {
+    id: 'al-mare-de-ressaca',
+    uf: 'AL',
+    nome: 'Maré de Ressaca',
+    perfil: 'raro',
+    mesesElegiveis: [4, 5, 6, 7],
+    chancePorHoraNaJanela: 0.167, // "~1x/6h" -> chance por tick de 30min = 1/12
+    duracaoMs: 2 * HORA_MS,
+    jogador: { tipo: 'precoConta', multiplicador: 1.5 },
+  },
+  {
+    id: 'al-doce-de-cana',
+    uf: 'AL',
+    nome: 'Doce de Cana',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.042, // "dispara 1x/dia" -> chance por tick de 30min = 1/48
+    duracaoMs: 4 * HORA_MS, // cupom expira em 4h se não usado
+    jogador: { tipo: 'precoConta', multiplicador: 0.7 },
+  },
+  {
+    id: 'ba-colheita-do-cacau',
+    uf: 'BA',
+    nome: 'Colheita do Cacau',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.006, // "1x/semana, dia fixo"
+    duracaoMs: 10 * 60_000,
+    jogador: { tipo: 'saldoInstantaneo', delta: 30 },
+  },
+  {
+    id: 'ba-vento-de-leste',
+    uf: 'BA',
+    nome: 'Vento de Leste',
+    perfil: 'raro',
+    mesesElegiveis: [4, 5, 6, 7],
+    chancePorHoraNaJanela: 0.1, // "~5%/30min" -> chance por hora = 2x
+    duracaoMs: 3 * HORA_MS,
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 1.2 },
+  },
+  {
+    id: 'ce-seca-do-sertao',
+    uf: 'CE',
+    nome: 'Seca do Sertão',
+    perfil: 'sazonal',
+    mesesElegiveis: [7, 8, 9, 10, 11, 12, 1],
+    duracaoMs: null,
+    jogador: { tipo: 'etaBorrado', passoMinutos: 15, passoKm: 5 },
+  },
+  {
+    id: 'ce-regata-dragao-do-mar',
+    uf: 'CE',
+    nome: 'Regata Dragão do Mar',
+    perfil: 'raro',
+    // "raro/cultural" sem estação definida na proposta -> elegível o ano todo
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.006,
+    duracaoMs: 10 * 60_000,
+    jogador: { tipo: 'precoConta', multiplicador: 0.5 },
+  },
+  {
+    id: 'ma-bumba-meu-boi',
+    uf: 'MA',
+    nome: 'Bumba Meu Boi',
+    perfil: 'sazonal',
+    mesesElegiveis: [6, 7, 8],
+    duracaoMs: null,
+    jogador: { tipo: 'precoConta', multiplicador: 0.7 },
+  },
+  {
+    id: 'ma-lencois-em-movimento',
+    uf: 'MA',
+    nome: 'Lençóis em Movimento',
+    perfil: 'raro',
+    mesesElegiveis: [12, 1, 2, 3, 4],
+    chancePorHoraNaJanela: 0.003, // "~1x/2 semanas"
+    duracaoMs: HORA_MS,
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 0.8 },
+  },
+  {
+    id: 'pb-maior-sao-joao-do-mundo',
+    uf: 'PB',
+    nome: 'Maior São João do Mundo',
+    perfil: 'sazonal',
+    mesesElegiveis: [6, 7],
+    duracaoMs: null,
+    jogador: { tipo: 'precoConta', multiplicador: 0.7 },
+  },
+  {
+    id: 'pb-solo-rachado',
+    uf: 'PB',
+    nome: 'Solo Rachado',
+    perfil: 'raro',
+    mesesElegiveis: [9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.1, // "~5%/30min" -> chance por hora = 2x
+    duracaoMs: 2 * HORA_MS,
+    jogador: { tipo: 'precoConta', multiplicador: 1.3 },
+  },
+  {
+    id: 'pe-frevo-de-carnaval',
+    uf: 'PE',
+    nome: 'Frevo de Carnaval',
+    perfil: 'sazonal',
+    mesesElegiveis: [2, 3],
+    duracaoMs: null,
+    // proposta pede bônus + desconto; a definição de evento só aceita 1
+    // efeito de jogador, então o desconto (sustentado por toda a janela do
+    // carnaval) foi o escolhido como representante, em vez do crédito único
+    jogador: { tipo: 'precoConta', multiplicador: 0.8 },
+  },
+  {
+    id: 'pe-vazio-climatico',
+    uf: 'PE',
+    nome: 'Vazio Climático',
+    perfil: 'sazonal',
+    mesesElegiveis: [9, 10, 11, 12],
+    duracaoMs: null,
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 1.1 },
+  },
+  {
+    id: 'pi-serra-da-capivara',
+    uf: 'PI',
+    nome: 'Serra da Capivara',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.003, // "~1x/2 semanas"
+    duracaoMs: 10 * 60_000,
+    jogador: { tipo: 'saldoInstantaneo', delta: 40 },
+  },
+  {
+    id: 'pi-seca-de-9-meses',
+    uf: 'PI',
+    nome: 'Seca de 9 Meses',
+    perfil: 'sazonal',
+    mesesElegiveis: [3, 4, 5, 6, 7, 8, 9, 10, 11],
+    duracaoMs: null,
+    jogador: { tipo: 'precoConta', multiplicador: 1.15 },
+  },
+  {
+    id: 'rn-areia-em-movimento',
+    uf: 'RN',
+    nome: 'Areia em Movimento',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.003, // "~1x/2 semanas"
+    duracaoMs: 30 * 60_000,
+    jogador: { tipo: 'escondeJogador' },
+  },
+  {
+    id: 'rn-cristalizacao-do-sal',
+    uf: 'RN',
+    nome: 'Cristalização do Sal',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.006, // "~1x/semana"
+    duracaoMs: 10 * 60_000,
+    jogador: { tipo: 'precoConta', multiplicador: 0.6 },
+  },
+  {
+    id: 'se-canions-do-sao-francisco',
+    uf: 'SE',
+    nome: 'Cânions do Rio São Francisco',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.003, // "~1x/2 semanas"
+    duracaoMs: 10 * 60_000,
+    jogador: { tipo: 'precoConta', multiplicador: 0.7 },
+  },
+  {
+    id: 'se-chuva-torrencial-costeira',
+    uf: 'SE',
+    nome: 'Chuva Torrencial Costeira',
+    perfil: 'raro',
+    mesesElegiveis: [4, 5, 6, 7],
+    chancePorHoraNaJanela: 0.1, // "~5%/30min" -> chance por hora = 2x
+    duracaoMs: 2 * HORA_MS,
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 1.15 },
+  },
 ];
 
 export function regionalEventsByUf(uf: string): CaracolRegionalEventDefinition[] {

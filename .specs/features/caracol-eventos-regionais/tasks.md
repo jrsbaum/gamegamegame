@@ -329,10 +329,10 @@ descritos em `plano/eventos-clima-proposta-completa.md`.
 - Skill: NONE
 
 **Done when**:
-- [ ] `validateCatalog()` não lança erro depois da região adicionada
-- [ ] Contagem de entradas por estado bate com o documento de referência — asserido em `tests/caracol-regional-events.test.ts`, comparando `CARACOL_REGIONAL_EVENTS_CATALOG.filter(e => e.uf === uf).length` contra a tabela do documento, para os 9 estados
-- [ ] Nenhuma entrada usa item ⚠️ (Alagoas/Pernambuco: nada do Quilombo de Palmares/Catucá/Conceição das Crioulas; Ceará: nada dos povos indígenas nomeados) — checado por busca textual (`grep -i "quilombo\|indígena" shared/caracol-regional-events.ts` não encontra nada)
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
+- [x] `validateCatalog()` não lança erro depois da região adicionada
+- [x] Contagem de entradas por estado bate com o documento de referência — asserido em `tests/caracol-regional-events.test.ts`, comparando `CARACOL_REGIONAL_EVENTS_CATALOG.filter(e => e.uf === uf).length` contra a tabela do documento, para os 9 estados
+- [x] Nenhuma entrada usa item ⚠️ (Alagoas/Pernambuco: nada do Quilombo de Palmares/Catucá/Conceição das Crioulas; Ceará: nada dos povos indígenas nomeados) — checado por busca textual (`grep -i "quilombo\|indígena" shared/caracol-regional-events.ts` não encontra nada)
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
 
 **Tests**: unit
 **Gate**: quick

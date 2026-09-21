@@ -265,3 +265,27 @@ describe('catálogo de eventos regionais — Região Norte (T8)', () => {
     expectNoFlaggedItems(/anna eseru|indígena/i);
   });
 });
+
+describe('catálogo de eventos regionais — Região Nordeste (T9)', () => {
+  it('valida sem lançar depois da região Nordeste adicionada', () => {
+    expect(() => validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)).not.toThrow();
+  });
+
+  it('contagem por estado da região Nordeste bate com o material de referência', () => {
+    expect(countByUf(['AL', 'BA', 'CE', 'MA', 'PB', 'PE', 'PI', 'RN', 'SE'])).toEqual({
+      AL: 2,
+      BA: 2,
+      CE: 2,
+      MA: 2,
+      PB: 2,
+      PE: 2,
+      PI: 2,
+      RN: 2,
+      SE: 2,
+    });
+  });
+
+  it('nenhuma entrada da região Nordeste referencia quilombo/indígena marcados ⚠️ (AL, PE, CE)', () => {
+    expectNoFlaggedItems(/quilombo|palmares|catucá|conceição das crioulas|indígena/i);
+  });
+});
