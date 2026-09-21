@@ -507,6 +507,77 @@ export const CARACOL_REGIONAL_EVENTS_CATALOG: CaracolRegionalEventDefinition[] =
     // suave dentro da faixa ×0.9-1.1 citada
     jogador: { tipo: 'precoConta', multiplicador: 1.05 },
   },
+
+  // ---- Região Sul (T12) ----
+  // Nota: o escudo de carga do Círio de Nazaré é do Pará (T8, região Norte),
+  // não do Sul; nenhuma entrada abaixo o duplica.
+  {
+    id: 'pr-geada-da-serra',
+    uf: 'PR',
+    nome: 'Geada da Serra',
+    perfil: 'raro',
+    mesesElegiveis: [6, 7, 8],
+    chancePorHoraNaJanela: 0.4, // "~40% do tempo"
+    duracaoMs: 3 * HORA_MS,
+    caracol: { tipo: 'velocidadeMundo', multiplicador: 0.7 }, // "não só contra 1 alvo" -> mundo
+  },
+  {
+    id: 'pr-cataratas-e-itaipu',
+    uf: 'PR',
+    nome: 'Cataratas do Iguaçu e Itaipu',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.006, // "~1x/semana"
+    duracaoMs: 2 * HORA_MS,
+    jogador: { tipo: 'precoConta', multiplicador: 0.5 },
+  },
+  {
+    id: 'rs-ciclone-extratropical',
+    uf: 'RS',
+    nome: 'Ciclone Extratropical',
+    perfil: 'raro',
+    mesesElegiveis: [5, 6, 7, 8, 9],
+    chancePorHoraNaJanela: 0.017, // "~1x/2-3 dias" -> chance por tick de 30min ≈ 1/120
+    duracaoMs: 40 * 60_000, // meio da faixa 30-45min
+    jogador: { tipo: 'precoConta', multiplicador: 2 },
+    caracol: { tipo: 'velocidadeMundo', multiplicador: 2 },
+  },
+  {
+    id: 'rs-bloqueio-atmosferico',
+    uf: 'RS',
+    nome: 'Bloqueio Atmosférico',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.0045, // "muito raro, semanal-quinzenal" -> meio entre 1x/semana e 1x/2semanas
+    duracaoMs: 7 * HORA_MS, // meio da faixa 6-8h
+    jogador: { tipo: 'precoConta', multiplicador: 1.5 },
+  },
+  {
+    id: 'sc-ciclone-extratropical',
+    uf: 'SC',
+    nome: 'Ciclone Extratropical',
+    perfil: 'raro',
+    mesesElegiveis: [5, 6, 7, 8, 9],
+    chancePorHoraNaJanela: 0.025, // "um pouco mais frequente que o do RS"
+    duracaoMs: 25 * 60_000, // meio da faixa 20-30min
+    // a proposta rotula o alvo como "ambos", mas só descreve o multiplicador
+    // do caracol ("acelera o caracol em 50%"); nenhum efeito de jogador foi
+    // inventado sem base no texto
+    caracol: { tipo: 'velocidadeMundo', multiplicador: 1.5 },
+  },
+  {
+    id: 'sc-oktoberfest-de-blumenau',
+    uf: 'SC',
+    nome: 'Oktoberfest de Blumenau',
+    perfil: 'sazonal',
+    mesesElegiveis: [10],
+    duracaoMs: null,
+    // 3º mecanismo novo aceito (bônus disparado pelo próprio jogador,
+    // REGCLIM-14); valor fixo não especificado na proposta, escolhido como
+    // equivalente aos outros bônus fixos do catálogo (Colheita do Cacau,
+    // Serra da Capivara)
+    jogador: { tipo: 'bonusResgatavel', valor: 50 },
+  },
 ];
 
 export function regionalEventsByUf(uf: string): CaracolRegionalEventDefinition[] {

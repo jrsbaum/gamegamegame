@@ -322,3 +322,28 @@ describe('catálogo de eventos regionais — Região Sudeste (T11)', () => {
     expect(temporal?.caracol?.tipo).toBe('velocidadeContraAlvoNoEstado');
   });
 });
+
+describe('catálogo de eventos regionais — Região Sul (T12)', () => {
+  it('valida sem lançar depois da região Sul adicionada', () => {
+    expect(() => validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)).not.toThrow();
+  });
+
+  it('contagem por estado da região Sul bate com o material de referência', () => {
+    expect(countByUf(['PR', 'RS', 'SC'])).toEqual({ PR: 2, RS: 2, SC: 2 });
+  });
+
+  it('a entrada da Oktoberfest usa tipo bonusResgatavel, não um desconto passivo', () => {
+    const oktoberfest = CARACOL_REGIONAL_EVENTS_CATALOG.find((event) => event.id === 'sc-oktoberfest-de-blumenau');
+    expect(oktoberfest?.jogador?.tipo).toBe('bonusResgatavel');
+  });
+
+  it('o escudo de carga do Círio de Nazaré (PA) não é duplicado na região Sul', () => {
+    const cirios = CARACOL_REGIONAL_EVENTS_CATALOG.filter((event) => event.jogador?.tipo === 'escudoContaCarga');
+    expect(cirios).toHaveLength(1);
+    expect(cirios[0]?.uf).toBe('PA');
+  });
+
+  it('nenhuma entrada da região Sul usa a moldura étnica ⚠️ de "cultura gaúcha"/imigração de SC', () => {
+    expectNoFlaggedItems(/ga[uú]cho|tropeirismo|imigra[cç][aã]o (alem[ãa]|italiana)/i);
+  });
+});

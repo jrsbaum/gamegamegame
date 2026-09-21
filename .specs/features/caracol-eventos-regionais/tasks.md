@@ -403,11 +403,11 @@ duplica).
 - Skill: NONE
 
 **Done when**:
-- [ ] `validateCatalog()` não lança erro depois da região adicionada
-- [ ] Contagem de entradas por estado bate com o documento de referência — asserido em `tests/caracol-regional-events.test.ts`, comparando `CARACOL_REGIONAL_EVENTS_CATALOG.filter(e => e.uf === uf).length` contra a tabela do documento, para os estados desta região
-- [ ] A entrada da Oktoberfest usa `tipo: 'bonusResgatavel'`, não um desconto passivo — REGCLIM-11
-- [ ] Nenhuma entrada usa a moldura étnica ⚠️ de "cultura gaúcha"/imigração de SC — checado por busca textual (`grep -i "gaúcho\|tropeirismo\|imigração alemã\|imigração italiana" shared/caracol-regional-events.ts` não encontra nada fora de nomes de prato/festa já aprovados)
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
+- [x] `validateCatalog()` não lança erro depois da região adicionada
+- [x] Contagem de entradas por estado bate com o documento de referência — asserido em `tests/caracol-regional-events.test.ts`, comparando `CARACOL_REGIONAL_EVENTS_CATALOG.filter(e => e.uf === uf).length` contra a tabela do documento, para os estados desta região
+- [x] A entrada da Oktoberfest usa `tipo: 'bonusResgatavel'`, não um desconto passivo — REGCLIM-11
+- [x] Nenhuma entrada usa a moldura étnica ⚠️ de "cultura gaúcha"/imigração de SC — checado por busca textual (`grep -i "gaúcho\|tropeirismo\|imigração alemã\|imigração italiana" shared/caracol-regional-events.ts` não encontra nada fora de nomes de prato/festa já aprovados)
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
 
 **Tests**: unit
 **Gate**: quick
