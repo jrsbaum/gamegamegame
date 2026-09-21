@@ -160,12 +160,14 @@ IF NOT EXISTS` + par Memory/Pg) já presente no arquivo
 - Skill: NONE
 
 **Done when**:
-- [ ] `evaluate()` nunca ativa mais de 4 estados ao mesmo tempo, mesmo com um catálogo de teste em que todos os 27 estariam elegíveis — REGCLIM-02, asserido em teste que roda `evaluate()` 100+ vezes e confere `activeCount <= 4` sempre
-- [ ] `evaluate()` não interrompe nem empilha um evento cuja duração ainda não expirou, mesmo quando outro evento do mesmo estado se torna elegível no meio-tempo — REGCLIM-03, teste dedicado
-- [ ] `evaluate()` expira um evento assim que sua duração (ou a virada do mês, para sazonal) passa, e o estado some da lista de ativos no ciclo seguinte — REGCLIM-04
-- [ ] `validateCatalog()` lança erro descritivo para: `uf` inválido, evento raro sem `chancePorHoraNaJanela`, evento sem `jogador` nem `caracol`, `duracaoMs` ausente num evento raro — 4 casos, um teste cada — REGCLIM-08
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
-- [ ] Contagem de testes: pelo menos 10 testes novos — `npx vitest run tests/caracol-regional-events.test.ts` reporta 10+ nesse arquivo
+- [x] `evaluate()` nunca ativa mais de 4 estados ao mesmo tempo, mesmo com um catálogo de teste em que todos os 27 estariam elegíveis — REGCLIM-02, asserido em teste que roda `evaluate()` 100+ vezes e confere `activeCount <= 4` sempre
+- [x] `evaluate()` não interrompe nem empilha um evento cuja duração ainda não expirou, mesmo quando outro evento do mesmo estado se torna elegível no meio-tempo — REGCLIM-03, teste dedicado
+- [x] `evaluate()` expira um evento assim que sua duração (ou a virada do mês, para sazonal) passa, e o estado some da lista de ativos no ciclo seguinte — REGCLIM-04
+- [x] `validateCatalog()` lança erro descritivo para: `uf` inválido, evento raro sem `chancePorHoraNaJanela`, evento sem `jogador` nem `caracol`, `duracaoMs` ausente num evento raro — 4 casos, um teste cada — REGCLIM-08
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
+- [x] Contagem de testes: pelo menos 10 testes novos — `npx vitest run tests/caracol-regional-events.test.ts` reporta 10+ nesse arquivo (16 no total do arquivo, 12 novos desta task)
+
+**Nota de design (não é desvio de spec):** `evaluate()`, `priceFactorFor()`, `worldSpeedFactor()`, `chaseSpeedFactorAgainst()` e `playerViewOverridesFor()` recebem o catálogo como primeiro parâmetro; o design.md omitiu esse parâmetro na assinatura, mas todas essas funções precisam resolver o `CaracolRegionalEventDefinition` a partir do `activeEventId` guardado em `RegionalEventState`, então o catálogo é uma dependência obrigatória, não uma adição de escopo. Também foi criado `shared/caracol-regional-events.ts` com `CARACOL_REGIONAL_EVENTS_CATALOG: []` (catálogo mínimo/vazio, conforme instruído) e `regionalEventsByUf()`, porque T4 (próxima task) precisa de um catálogo real para conectar ao manager, e T8-T13 (próximo lote) o populam.
 
 **Tests**: unit
 **Gate**: quick
