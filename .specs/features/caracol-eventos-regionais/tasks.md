@@ -377,10 +377,10 @@ descritos em `plano/eventos-clima-proposta-completa.md`.
 - Skill: NONE
 
 **Done when**:
-- [ ] `validateCatalog()` não lança erro depois da região adicionada
-- [ ] Contagem de entradas por estado bate com o documento de referência — asserido em `tests/caracol-regional-events.test.ts`, comparando `CARACOL_REGIONAL_EVENTS_CATALOG.filter(e => e.uf === uf).length` contra a tabela do documento, para os estados desta região
-- [ ] Os eventos de MG (ZCAS) e RJ (Temporal de Verão) usam `velocidadeContraAlvoNoEstado`, não `velocidadeMundo`, conforme documentado
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
+- [x] `validateCatalog()` não lança erro depois da região adicionada
+- [x] Contagem de entradas por estado bate com o documento de referência — asserido em `tests/caracol-regional-events.test.ts`, comparando `CARACOL_REGIONAL_EVENTS_CATALOG.filter(e => e.uf === uf).length` contra a tabela do documento, para os estados desta região
+- [x] Os eventos de MG (ZCAS) e RJ (Temporal de Verão) usam `velocidadeContraAlvoNoEstado`, não `velocidadeMundo`, conforme documentado
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
 
 **Tests**: unit
 **Gate**: quick

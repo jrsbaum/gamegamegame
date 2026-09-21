@@ -305,3 +305,20 @@ describe('catálogo de eventos regionais — Região Centro-Oeste (T10)', () => 
     expect(cheia?.caracol).toBeDefined();
   });
 });
+
+describe('catálogo de eventos regionais — Região Sudeste (T11)', () => {
+  it('valida sem lançar depois da região Sudeste adicionada', () => {
+    expect(() => validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)).not.toThrow();
+  });
+
+  it('contagem por estado da região Sudeste bate com o material de referência', () => {
+    expect(countByUf(['ES', 'MG', 'RJ', 'SP'])).toEqual({ ES: 2, MG: 2, RJ: 2, SP: 2 });
+  });
+
+  it('MG (ZCAS) e RJ (Temporal de Verão) usam velocidadeContraAlvoNoEstado, não velocidadeMundo', () => {
+    const zcas = CARACOL_REGIONAL_EVENTS_CATALOG.find((event) => event.id === 'mg-zcas-enchente-na-serra');
+    const temporal = CARACOL_REGIONAL_EVENTS_CATALOG.find((event) => event.id === 'rj-temporal-de-verao');
+    expect(zcas?.caracol?.tipo).toBe('velocidadeContraAlvoNoEstado');
+    expect(temporal?.caracol?.tipo).toBe('velocidadeContraAlvoNoEstado');
+  });
+});

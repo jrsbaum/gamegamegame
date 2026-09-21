@@ -411,6 +411,102 @@ export const CARACOL_REGIONAL_EVENTS_CATALOG: CaracolRegionalEventDefinition[] =
     duracaoMs: 4 * HORA_MS,
     jogador: { tipo: 'precoConta', multiplicador: 0.5 },
   },
+
+  // ---- Região Sudeste (T11) ----
+  {
+    id: 'es-nevoeiro-da-serra',
+    uf: 'ES',
+    nome: 'Nevoeiro da Serra',
+    perfil: 'raro',
+    mesesElegiveis: [6, 7, 8, 9],
+    chancePorHoraNaJanela: 0.05, // "baixa chance" na proposta, sem % explícito
+    duracaoMs: 45 * 60_000, // meio da faixa 30-60min
+    // proposta pede "esconder o caracol do jogador" (inverso do Blooper);
+    // esse lever novo não foi aceito (só ETA borrado, velocidade por local
+    // do alvo e bônus resgatável entraram) — usa a alternativa documentada
+    // na própria proposta: reaproveitar o Blooper padrão (escondeJogador)
+    jogador: { tipo: 'escondeJogador' },
+  },
+  {
+    id: 'es-pedra-azul',
+    uf: 'ES',
+    nome: 'Pedra Azul',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.02, // cosmético/raro, sem % na proposta
+    duracaoMs: 2 * HORA_MS,
+    // proposta oferece "sem efeito (flavor) ou desconto ×0.5"; todo evento
+    // do catálogo precisa de um efeito (validateCatalog), então o desconto
+    // leve foi o escolhido
+    jogador: { tipo: 'precoConta', multiplicador: 0.5 },
+  },
+  {
+    id: 'mg-zcas-enchente-na-serra',
+    uf: 'MG',
+    nome: 'ZCAS: Enchente na Serra',
+    perfil: 'raro',
+    mesesElegiveis: [10, 11, 12, 1, 2, 3],
+    chancePorHoraNaJanela: 0.03,
+    duracaoMs: 4 * HORA_MS, // meio da faixa 3-6h
+    jogador: { tipo: 'precoConta', multiplicador: 2 },
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 0.7 },
+  },
+  {
+    id: 'mg-geada-da-mantiqueira',
+    uf: 'MG',
+    nome: 'Geada da Mantiqueira',
+    perfil: 'raro',
+    mesesElegiveis: [6, 7, 8],
+    chancePorHoraNaJanela: 0.2, // "frequente"
+    duracaoMs: 90 * 60_000, // meio da faixa 1-2h
+    caracol: { tipo: 'velocidadeMundo', multiplicador: 0.8 },
+  },
+  {
+    id: 'rj-calorao-carioca',
+    uf: 'RJ',
+    nome: 'Calorão Carioca',
+    perfil: 'sazonal',
+    mesesElegiveis: [12, 1, 2, 3, 4],
+    duracaoMs: null,
+    // proposta deixa a polaridade em aberto ("buff ou nerf, ainda por
+    // decidir"); escolhido desconto leve para manter o efeito de fundo
+    // amigável, já que o evento fica ativo boa parte do verão
+    jogador: { tipo: 'precoConta', multiplicador: 0.9 },
+  },
+  {
+    id: 'rj-temporal-de-verao',
+    uf: 'RJ',
+    nome: 'Temporal de Verão',
+    perfil: 'raro',
+    mesesElegiveis: [12, 1, 2, 3, 4],
+    chancePorHoraNaJanela: 0.05,
+    duracaoMs: 3 * HORA_MS, // meio da faixa 2-4h
+    jogador: { tipo: 'precoConta', multiplicador: 2 },
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 0.7 },
+  },
+  {
+    id: 'sp-ilha-de-calor-urbana',
+    uf: 'SP',
+    nome: 'Ilha de Calor Urbana',
+    perfil: 'sazonal',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    duracaoMs: null,
+    jogador: { tipo: 'precoConta', multiplicador: 1.15 }, // meio da faixa 1.1-1.2
+  },
+  {
+    id: 'sp-quatro-estacoes-em-um-dia',
+    uf: 'SP',
+    nome: 'Quatro Estações em Um Dia',
+    perfil: 'raro',
+    mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    chancePorHoraNaJanela: 0.02,
+    duracaoMs: HORA_MS,
+    // proposta pede sorteio de buff OU nerf a cada ocorrência; o modelo de
+    // dado do catálogo (um efeito fixo por entrada) não representa
+    // aleatoriedade de polaridade, então foi escolhido um valor único e
+    // suave dentro da faixa ×0.9-1.1 citada
+    jogador: { tipo: 'precoConta', multiplicador: 1.05 },
+  },
 ];
 
 export function regionalEventsByUf(uf: string): CaracolRegionalEventDefinition[] {
