@@ -42,6 +42,14 @@
 - **Date**: 2026-09-21
 - **Status**: active
 
+### AD-006
+- **Decision**: Efeito ligado a "onde o jogador está" nunca é concedido a uma conta (nada de linha em `caracol_effects` por conta); é sempre derivado, na hora da leitura, do `cityUf` atual da conta comparado ao estado ativo do momento. Padrão introduzido pelos eventos regionais do Caracol (`.specs/features/caracol-eventos-regionais/`).
+- **Reason**: Um efeito concedido precisaria de código extra pra revogar/reconceder quando a conta muda de cidade (via Cogumelo); derivar ao vivo resolve esse caso de graça, porque o efeito simplesmente para de valer quando o `cityUf` muda, sem nenhuma ação explícita.
+- **Trade-off**: Todo ponto de leitura (`price()`, `chaseSpeedKmh()`, `stateFor()`) precisa checar o estado regional a cada chamada, em vez de só ler uma flag já resolvida. Aceito porque a checagem é O(1) contra um mapa em memória, o mesmo custo de checar um efeito por conta hoje.
+- **Scope**: `server/caracol/regional-events.ts`, `server/caracol/game.ts` (`price()`, `chaseSpeedKmh()`, `stateFor()`), e qualquer feature futura que precise de "efeito por localização atual" em vez de "efeito concedido a uma conta".
+- **Date**: 2026-09-21
+- **Status**: active
+
 ## Handoff
 - **Feature**: powerup-de-dica (`.specs/features/powerup-de-dica/`) — **concluída**
 - **Phase / Task**: 3 fases, 11 tasks (T1..T11) + 3 correções; 2 rodadas de Verifier; veredito PASS, 8/8 mutantes mortos
