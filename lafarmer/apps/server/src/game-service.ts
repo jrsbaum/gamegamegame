@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { getContentDefinition } from "@lafarmer/content";
+import { getContentDefinition, isWorldTileWalkable, WORLD_HEIGHT_TILES, WORLD_WIDTH_TILES } from "@lafarmer/content";
 import type { Direction, FarmItem, FarmItemView, MarketListing, MoveCommand, MoveResult, PlayerState, WorldSnapshot } from "./domain.js";
 import type { FarmRepository, MarketRepository, PlayerRepository } from "./repositories.js";
 
-const WORLD_BOUNDS = { minX: 0, maxX: 100, minY: 0, maxY: 100 } as const;
+const WORLD_BOUNDS = { minX: 0, maxX: WORLD_WIDTH_TILES - 1, minY: 0, maxY: WORLD_HEIGHT_TILES - 1 } as const;
 const OFFLINE_CAP_SECONDS = 24 * 60 * 60;
 const ONLINE_COINS_PER_TICK = 10;
 const ONLINE_TICK_MS = 60_000;
@@ -51,12 +51,13 @@ export class GameService {
     const previous = this.actionReceipts.get(receiptKey);
     if (previous) return previous;
     const player = await this.requirePlayer(playerId);
-    const position = { ...player.position };
+    const position = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
     if (command.direction === "up") position.y -= 1;
     if (command.direction === "down") position.y += 1;
     if (command.direction === "left") position.x -= 1;
     if (command.direction === "right") position.x += 1;
-    const updated: PlayerState = { ...player, lastActiveAt: this.now(), position: { x: clamp(position.x, WORLD_BOUNDS.minX, WORLD_BOUNDS.maxX), y: clamp(position.y, WORLD_BOUNDS.minY, WORLD_BOUNDS.maxY) } };
+    const nextPosition = isWorldTileWalkable(position.x, position.y) ? position : player.position;
+    const updated: PlayerState = { ...player, lastActiveAt: this.now(), position: nextPosition };
     await this.savePlayer(updated, false);
     const result: MoveResult = { actionId: command.actionId, accepted: true, player: updated };
     this.actionReceipts.set(receiptKey, result);
@@ -69,7 +70,7 @@ export class GameService {
     const player = await this.requirePlayer(playerId);
     const x = input.x ?? player.position.x;
     const y = input.y ?? player.position.y;
-    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 100 || y < 0 || y > 100 || Math.abs(x - player.position.x) > 8 || Math.abs(y - player.position.y) > 8 || x > 25) throw new GameError("invalid_position");
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < WORLD_BOUNDS.minX || x > WORLD_BOUNDS.maxX || y < WORLD_BOUNDS.minY || y > WORLD_BOUNDS.maxY || Math.abs(x - player.position.x) > 8 || Math.abs(y - player.position.y) > 8 || !isWorldTileWalkable(Math.round(x), Math.round(y))) throw new GameError("invalid_position");
     if (player.coins < PLANT_COST) throw new GameError("insufficient_coins");
     const item: FarmItem = { id: randomUUID(), ownerId: playerId, contentId: definition.id, plantedAt: this.now(), lastCareAt: null, position: { x, y } };
     await this.repositories.farm.insert(item);
@@ -82,7 +83,7 @@ export class GameService {
     if (!definition || !["animal", "dinosaur"].includes(definition.category)) throw new GameError("invalid_animal");
     const player = await this.requirePlayer(playerId);
     const x = input.x ?? player.position.x; const y = input.y ?? player.position.y;
-    if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x - player.position.x) > 8 || Math.abs(y - player.position.y) > 8 || x > 25) throw new GameError("invalid_position");
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < WORLD_BOUNDS.minX || x > WORLD_BOUNDS.maxX || y < WORLD_BOUNDS.minY || y > WORLD_BOUNDS.maxY || Math.abs(x - player.position.x) > 8 || Math.abs(y - player.position.y) > 8 || !isWorldTileWalkable(Math.round(x), Math.round(y))) throw new GameError("invalid_position");
     const cost = definition.category === "dinosaur" ? 300 : 100;
     if (player.coins < cost) throw new GameError("insufficient_coins");
     const item: FarmItem = { id: randomUUID(), ownerId: playerId, contentId: definition.id, plantedAt: this.now(), lastCareAt: null, position: { x, y } };
@@ -161,8 +162,13 @@ export class GameService {
     if (active) return active;
     const player = await this.repositories.players.findById(playerId);
     if (!player) throw new GameError("player_not_found");
-    this.activePlayers.set(playerId, player);
-    return player;
+    const position = isWorldTileWalkable(Math.round(player.position.x), Math.round(player.position.y))
+      ? { x: Math.round(player.position.x), y: Math.round(player.position.y) }
+      : { x: 5, y: 5 };
+    const normalized = position.x === player.position.x && position.y === player.position.y ? player : { ...player, position };
+    this.activePlayers.set(playerId, normalized);
+    if (normalized !== player) await this.repositories.players.update(normalized);
+    return normalized;
   }
 
   private async savePlayer(player: PlayerState, immediate = true): Promise<void> {

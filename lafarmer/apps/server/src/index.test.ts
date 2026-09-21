@@ -130,6 +130,14 @@ describe("LaFarmer server", () => {
     const lastAck = acknowledgements.at(-1);
     if (!lastAck) throw new Error("missing websocket acknowledgement history");
     expect(lastAck.player.position.x).toBe(before + 1);
+    socket.send(JSON.stringify({ type: "move", actionId: "move-2", direction: "right" }));
+    await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === "move-2"));
+    expect(messages.find((message) => message.type === "move_ack" && message.actionId === "move-2")?.player.position.x).toBe(before + 2);
+    socket.send(JSON.stringify({ type: "move", actionId: "move-3", direction: "right" }));
+    await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === "move-3"));
+    const blockedAck = messages.find((message) => message.type === "move_ack" && message.actionId === "move-3");
+    if (!blockedAck) throw new Error("missing blocked movement acknowledgement");
+    expect(blockedAck.player.position.x).toBe(before + 2);
     socket.close();
   });
 
