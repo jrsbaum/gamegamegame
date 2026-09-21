@@ -20,7 +20,7 @@ export function buildLandOptions(players: PlayerState[], playerId: string): Land
     if (!occupied.has(key) && !unique.has(key)) unique.set(key, candidate);
   }
   return [...unique.values()].slice(0, 3).map((plot, index) => {
-    const landscape = LANDSCAPES[Math.abs(plot.x * 7 + plot.y * 11 + index) % LANDSCAPES.length];
+    const landscape = LANDSCAPES[index % LANDSCAPES.length];
     return { id: `plot-${plot.x}-${plot.y}`, x: plot.x, y: plot.y, biome: landscape.biome, title: landscape.title, feature: landscape.feature, summary: landscape.summary, fertility: landscape.fertility, nearbyNeighbors: anchors.filter((anchor) => Math.abs(anchor.x - plot.x) + Math.abs(anchor.y - plot.y) === 1).length };
   });
 }
