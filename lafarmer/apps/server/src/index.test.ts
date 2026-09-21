@@ -1,0 +1,151 @@
+import { afterEach, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import { createApp } from "./http.js";
+import { createPersistence } from "./persistence.js";
+import { createInMemoryRepositories } from "./in-memory-store.js";
+
+const testPassword = "a".repeat(8);
+const alternateTestPassword = "b".repeat(8);
+const apps: Awaited<ReturnType<typeof createApp>>[] = [];
+
+afterEach(async () => {
+  while (apps.length) await apps.pop()?.close();
+});
+
+describe("LaFarmer server", () => {
+  it("uses the in-memory adapter when running tests even if a database URL exists", () => {
+    const persistence = createPersistence({ databaseUrl: "postgresql://unused", environment: "test" });
+    expect(persistence.kind).toBe("memory");
+  });
+
+  it("uses the in-memory adapter when DATABASE_URL is absent", async () => {
+    const persistence = createPersistence({ databaseUrl: null, environment: "development" });
+    expect(persistence.kind).toBe("memory");
+    await persistence.close();
+  });
+
+  it("accepts an explicit repository bundle without opening a database", () => {
+    const persistence = createPersistence({ repositories: createInMemoryRepositories(), databaseUrl: "postgresql://unused" });
+    expect(persistence.kind).toBe("memory");
+  });
+
+  it("registers, authenticates and updates the player profile", async () => {
+    const app = createApp();
+    apps.push(app);
+    const register = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { nick: "Lara", password: testPassword, credentialsSaved: true }
+    });
+    expect(register.statusCode).toBe(201);
+    const result = register.json();
+    expect(result.player.coins).toBe(1_000);
+    expect(result.player.name).toBe("Lara");
+
+    const me = await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${result.token}` } });
+    expect(me.statusCode).toBe(200);
+    expect(me.json().player.appearance).toEqual({ clothing: "forest", hair: "short" });
+
+    const profile = await app.inject({
+      method: "PATCH",
+      url: "/api/player/profile",
+      headers: { authorization: `Bearer ${result.token}` },
+      payload: { name: "Lara do Vale", clothing: "coral", hair: "long" }
+    });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.json().player.appearance).toEqual({ clothing: "coral", hair: "long" });
+  });
+
+  it("requires the credential-save confirmation and rejects duplicate nicks", async () => {
+    const app = createApp();
+    apps.push(app);
+    const missingAcknowledgement = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { nick: "Lara", password: testPassword, credentialsSaved: false }
+    });
+    expect(missingAcknowledgement.statusCode).toBe(400);
+
+    const first = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Lara", password: testPassword, credentialsSaved: true } });
+    expect(first.statusCode).toBe(201);
+    const duplicate = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "lara", password: alternateTestPassword, credentialsSaved: true } });
+    expect(duplicate.statusCode).toBe(409);
+  });
+
+  it("authenticates the websocket and applies authoritative idempotent movement", async () => {
+    const app = createApp();
+    apps.push(app);
+    const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Mover", password: testPassword, credentialsSaved: true } });
+    const token = register.json().token as string;
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("server did not expose a port");
+
+    const socket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${token}`);
+    const messages: Record<string, any>[] = [];
+    socket.on("message", (data) => messages.push(JSON.parse(data.toString())));
+    await new Promise<void>((resolve, reject) => {
+      socket.once("open", () => resolve());
+      socket.once("error", reject);
+    });
+    await waitFor(() => messages.some((message) => message.type === "hello"));
+    const hello = messages.find((message) => message.type === "hello");
+    if (!hello) throw new Error("missing websocket hello");
+    const before = hello.snapshot.player.position.x;
+    socket.send(JSON.stringify({ type: "move", actionId: "move-1", direction: "right" }));
+    await waitFor(() => messages.some((message) => message.type === "move_ack"));
+    const firstAck = messages.find((message) => message.type === "move_ack");
+    if (!firstAck) throw new Error("missing websocket move acknowledgement");
+    expect(firstAck.player.position.x).toBe(before + 1);
+    socket.send(JSON.stringify({ type: "move", actionId: "move-1", direction: "left" }));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const acknowledgements = messages.filter((message) => message.type === "move_ack");
+    const lastAck = acknowledgements.at(-1);
+    if (!lastAck) throw new Error("missing websocket acknowledgement history");
+    expect(lastAck.player.position.x).toBe(before + 1);
+    socket.close();
+  });
+
+  it("plants, persists a farm item and completes a player-to-player market trade", async () => {
+    const repositories = createInMemoryRepositories();
+    const app = createApp({ repositories });
+    apps.push(app);
+    const seller = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Seller", password: testPassword, credentialsSaved: true } });
+    const buyer = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Buyer", password: alternateTestPassword, credentialsSaved: true } });
+    expect(seller.statusCode).toBe(201);
+    expect(buyer.statusCode).toBe(201);
+    const sellerPlayer = await repositories.players.findByAccountId(seller.json().player.accountId);
+    if (!sellerPlayer) throw new Error("seller player missing");
+    await repositories.players.update({ ...sellerPlayer, inventory: { tomato: 2 } });
+
+    const planted = await app.inject({ method: "POST", url: "/api/farm/plant", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", x: 5, y: 5 } });
+    expect(planted.statusCode).toBe(201);
+    expect(planted.json().item.stageId).toBe("soil");
+
+    const listing = await app.inject({ method: "POST", url: "/api/market/listings", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", quantity: 1, unitPrice: 30 } });
+    expect(listing.statusCode).toBe(201);
+    const purchase = await app.inject({ method: "POST", url: `/api/market/${listing.json().listing.id}/buy`, headers: { authorization: `Bearer ${buyer.json().token}` }, payload: {} });
+    expect(purchase.statusCode).toBe(200);
+    expect(purchase.json().inventory.tomato).toBe(1);
+    expect(purchase.json().coins).toBe(970);
+    expect((await app.inject({ method: "GET", url: "/api/market" })).json().listings).toHaveLength(0);
+  });
+
+  it("adopts an animal through the same catalog-driven farm entity flow", async () => {
+    const app = createApp();
+    apps.push(app);
+    const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Rancher", password: testPassword, credentialsSaved: true } });
+    const adopted = await app.inject({ method: "POST", url: "/api/farm/adopt", headers: { authorization: `Bearer ${register.json().token}` }, payload: { contentId: "cow" } });
+    expect(adopted.statusCode).toBe(201);
+    expect(adopted.json().item.stageId).toBe("baby");
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${register.json().token}` } })).json().player.coins).toBe(900);
+  });
+});
+
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const startedAt = Date.now();
+  while (!predicate()) {
+    if (Date.now() - startedAt > 2_000) throw new Error("timed out waiting for websocket message");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
