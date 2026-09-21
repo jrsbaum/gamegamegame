@@ -3,152 +3,8 @@
   "promote_threshold": 2,
   "window_days": 45,
   "quarantine_threshold": 2,
-  "next_id": 15,
+  "next_id": 16,
   "lessons": [
-    {
-      "id": "L-001",
-      "key": "surviving_mutant::when a test proves a room scoped exclusion set by drawing from a large catalog mock the rng or assert directly against the internal set instead of relying on collision probability to prove exclusion",
-      "text": "When a test proves a room-scoped exclusion set by drawing from a large catalog, mock the RNG or assert directly against the internal set instead of relying on collision probability to prove exclusion.",
-      "signal": "surviving_mutant",
-      "scope": "server/game.ts",
-      "status": "candidate",
-      "features": [
-        "melhorias-jogo"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "server/game.ts:304-306 (mutant b) (server/game.ts)"
-      ],
-      "created": "2026-08-04T23:02:37Z",
-      "last_seen": "2026-08-04T23:02:37Z"
-    },
-    {
-      "id": "L-002",
-      "key": "ac_gap::a cleanup on deletion acceptance criterion needs a test that observes the side effect e g a lookup fails after deletion not just a structural argument that the field lives inside the deleted object",
-      "text": "A cleanup-on-deletion acceptance criterion needs a test that observes the side effect (e.g. a lookup fails after deletion), not just a structural argument that the field lives inside the deleted object.",
-      "signal": "ac_gap",
-      "scope": "server/game.ts",
-      "status": "candidate",
-      "features": [
-        "melhorias-jogo"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "POOL-07 (server/game.ts)"
-      ],
-      "created": "2026-08-04T23:02:37Z",
-      "last_seen": "2026-08-04T23:02:37Z"
-    },
-    {
-      "id": "L-003",
-      "key": "ac_gap::a never happens acceptance criterion no timer based side effect must get its own row in the test coverage matrix or it silently drops out of every task s scope",
-      "text": "A never-happens acceptance criterion (no timer-based side effect) must get its own row in the test coverage matrix, or it silently drops out of every task's scope.",
-      "signal": "ac_gap",
-      "scope": "test-coverage-matrix",
-      "status": "candidate",
-      "features": [
-        "melhorias-jogo"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "TIME-09 (test-coverage-matrix)"
-      ],
-      "created": "2026-08-04T23:02:37Z",
-      "last_seen": "2026-08-04T23:02:37Z"
-    },
-    {
-      "id": "L-004",
-      "key": "surviving_mutant::when a fix adds a deterministic assertion to one test that shared a statistically weak collision based pattern re run the sensor against every sibling test built on the same pattern before declaring that class of gap closed fixing one instance does not fix the others",
-      "text": "When a fix adds a deterministic assertion to one test that shared a statistically-weak collision-based pattern, re-run the sensor against every sibling test built on the same pattern before declaring that class of gap closed - fixing one instance does not fix the others.",
-      "signal": "surviving_mutant",
-      "scope": "server/game.ts",
-      "status": "candidate",
-      "features": [
-        "melhorias-jogo"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "server/game.ts:541 (mutant i, round 2) (server/game.ts)"
-      ],
-      "created": "2026-08-04T23:18:51Z",
-      "last_seen": "2026-08-04T23:18:51Z"
-    },
-    {
-      "id": "L-005",
-      "key": "surviving_mutant::a test that proves a never happens timing invariant by waiting a fixed observation window only disproves faults shorter than that window size the window to the longest plausible real world fault duration not an arbitrary short wait",
-      "text": "A test that proves a never-happens timing invariant by waiting a fixed observation window only disproves faults shorter than that window - size the window to the longest plausible real-world fault duration, not an arbitrary short wait.",
-      "signal": "surviving_mutant",
-      "scope": "server/game.ts",
-      "status": "candidate",
-      "features": [
-        "melhorias-jogo"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "server/game.ts:311 (mutant g, round 2) (server/game.ts)"
-      ],
-      "created": "2026-08-04T23:18:51Z",
-      "last_seen": "2026-08-04T23:18:51Z"
-    },
-    {
-      "id": "L-006",
-      "key": "spec_precision_gap::when a curated data acceptance criterion depends on human visual judgment e g not cosplay statue graffiti add an automatable metadata proxy check e g scan source platform category tags instead of leaving it fully untested filename only triage misses cases the platform s own category metadata would catch",
-      "text": "When a curated-data acceptance criterion depends on human visual judgment (e.g. 'not cosplay/statue/graffiti'), add an automatable metadata proxy check (e.g. scan source-platform category tags) instead of leaving it fully untested — filename-only triage misses cases the platform's own category metadata would catch.",
-      "signal": "spec_precision_gap",
-      "scope": "curation",
-      "status": "candidate",
-      "features": [
-        "fotos-personagens"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "IMG-02 (curation)"
-      ],
-      "created": "2026-08-05T01:47:25Z",
-      "last_seen": "2026-08-05T01:47:25Z"
-    },
-    {
-      "id": "L-007",
-      "key": "ac_gap::when copying attribution text from an html sourced api field e g commons extmetadata into a js string rendered as jsx text decode html entities first react does not re decode entities inside already parsed text nodes so raw amp renders literally on screen",
-      "text": "When copying attribution text from an HTML-sourced API field (e.g. Commons extmetadata) into a JS string rendered as JSX text, decode HTML entities first — React does not re-decode entities inside already-parsed text nodes, so raw &amp; renders literally on screen.",
-      "signal": "ac_gap",
-      "scope": "data-hygiene",
-      "status": "candidate",
-      "features": [
-        "fotos-personagens"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "server/character-images.ts:396 (data-hygiene)"
-      ],
-      "created": "2026-08-05T01:47:25Z",
-      "last_seen": "2026-08-05T01:47:25Z"
-    },
-    {
-      "id": "L-008",
-      "key": "ac_gap::when a curated image resolver matches a person actor voice actor rather than a role check for the same image url reused across different characters before visual review a duplicate hit is objective code checkable proof the resolver returned a person s generic photo instead of a role specific one",
-      "text": "When a curated-image resolver matches a person (actor, voice actor) rather than a role, check for the same image URL reused across different characters before visual review — a duplicate hit is objective, code-checkable proof the resolver returned a person's generic photo instead of a role-specific one.",
-      "signal": "ac_gap",
-      "scope": "curation",
-      "status": "candidate",
-      "features": [
-        "fotos-personagens"
-      ],
-      "recurrence": 1,
-      "harmful": 0,
-      "evidence": [
-        "IMG-02 (curation)"
-      ],
-      "created": "2026-08-05T03:28:53Z",
-      "last_seen": "2026-08-05T03:28:53Z"
-    },
     {
       "id": "L-009",
       "key": "surviving_mutant::assert that a frozen snapshot value is the one consumed by the calculation not merely that it was stored",
@@ -256,6 +112,24 @@
       ],
       "created": "2026-08-09T02:56:16Z",
       "last_seen": "2026-08-09T02:56:16Z"
+    },
+    {
+      "id": "L-015",
+      "key": "ac_gap::ao persistir uma acao de revogacao logout invalidacao de token escrever teste que revoga e depois tenta reautenticar reusar nao so o caminho de sucesso da persistencia",
+      "text": "Ao persistir uma ação de revogação (logout, invalidação de token), escrever teste que revoga e depois tenta reautenticar/reusar — não só o caminho de sucesso da persistência.",
+      "signal": "ac_gap",
+      "scope": "server/caracol",
+      "status": "candidate",
+      "features": [
+        "caracol-sessao-persistente"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "CARSESS-03 (server/caracol)"
+      ],
+      "created": "2026-09-21T16:46:33Z",
+      "last_seen": "2026-09-21T16:46:33Z"
     }
   ]
 }
