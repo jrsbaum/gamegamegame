@@ -124,6 +124,9 @@ const REGIONAL_TEST_UF_SAZONAL = 'AC';
 const REGIONAL_TEST_UF_RARO = 'RR';
 const REGIONAL_RARO_DURATION_MS = 30 * 60_000;
 
+const REGIONAL_TEST_UF_WORLD_SPEED = 'SP';
+const REGIONAL_TEST_UF_CHASE_TARGET = 'MG';
+
 function regionalTestCatalog(): CaracolRegionalEventDefinition[] {
   return [
     {
@@ -145,7 +148,38 @@ function regionalTestCatalog(): CaracolRegionalEventDefinition[] {
       duracaoMs: REGIONAL_RARO_DURATION_MS,
       jogador: { tipo: 'saldoInstantaneo', delta: 5 },
     },
+    {
+      id: 'sp-teste-velocidade-mundo',
+      uf: REGIONAL_TEST_UF_WORLD_SPEED,
+      nome: 'Ventania de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      caracol: { tipo: 'velocidadeMundo', multiplicador: 0.5 },
+    },
+    {
+      id: 'mg-teste-velocidade-alvo',
+      uf: REGIONAL_TEST_UF_CHASE_TARGET,
+      nome: 'ZCAS de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 2 },
+    },
   ];
+}
+
+/** Só o efeito de velocidade contra o alvo, isolado (sem o `velocidadeMundo` da SP misturar o fator). */
+function chaseAgainstOnlyCatalog(): CaracolRegionalEventDefinition[] {
+  return [{
+    id: 'mg-teste-velocidade-alvo',
+    uf: REGIONAL_TEST_UF_CHASE_TARGET,
+    nome: 'ZCAS de teste',
+    perfil: 'sazonal',
+    mesesElegiveis: ALL_MONTHS,
+    duracaoMs: null,
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 2 },
+  }];
 }
 
 afterEach(async () => {
@@ -571,5 +605,151 @@ describe('clima regional do Caracol', () => {
     const payload = await notice;
     expect(payload.code).toBe('regional-event');
     expect(payload.message).toContain('Chuva de teste');
+  });
+});
+
+describe('efeitos regionais em preço, velocidade e visão de estado', () => {
+  it('um evento precoConta ativo no estado da conta dobra o preço de acelerar', async () => {
+    const harness = await createHarness(undefined, { regionalEventsCatalog: regionalTestCatalog(), random: () => 0 });
+    const player = await connectClient(harness.address);
+    await register(player, 'Precificado');
+    await selectCity(player, '1200013'); // Acrelândia, AC
+
+    const before = await sync(player);
+    expect(before.ok).toBe(true);
+    if (!before.ok) return;
+    const baseSpeedCost = before.state.world.snail.speedCost;
+
+    harness.now.value += 30 * 60_000;
+    await harness.manager.tickOnce(); // ativa o precoConta x2 em AC
+
+    const after = await sync(player);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.world.snail.speedCost).toBe(baseSpeedCost * 2);
+  });
+
+  it('velocidadeMundo ativo dobra o ETA de perseguição contra qualquer alvo (metade da velocidade)', async () => {
+    // Evento pré-carregado no store antes do boot (mesmo padrão dos testes de
+    // velocidadeContraAlvoNoEstado abaixo): evita que o tick que ativaria o
+    // evento também mova o caracol por 30 minutos, o que mudaria a distância
+    // restante nos dois cenários de um jeito que não é só "metade da velocidade".
+    async function setup(preActivate: boolean) {
+      const store = new MemoryCaracolStore();
+      if (preActivate) {
+        await store.saveRegionalEvents([{ uf: REGIONAL_TEST_UF_WORLD_SPEED, activeEventId: 'sp-teste-velocidade-mundo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+      }
+      const harness = await createHarness(store, { regionalEventsCatalog: regionalTestCatalog() });
+      const player = await connectClient(harness.address);
+      await register(player, 'Alvo');
+      await selectCity(player, '1200013'); // AC, sem evento de velocidade nesta suíte
+      harness.now.value += 50_000; // acumula moedas suficientes para acelerar
+      expect((await buySpeed(player)).ok).toBe(true);
+      return sync(player);
+    }
+
+    const withEvent = await setup(true);
+    const withoutEvent = await setup(false);
+    expect(withEvent.ok && withoutEvent.ok).toBe(true);
+    if (!withEvent.ok || !withoutEvent.ok) return;
+    expect(withEvent.state.world.snail.etaMs).toBeCloseTo((withoutEvent.state.world.snail.etaMs ?? 0) * 2, 0);
+  });
+
+  it('velocidadeContraAlvoNoEstado dobra a perseguição quando o alvo mora no estado ativo', async () => {
+    async function setup(preActivate: boolean) {
+      const store = new MemoryCaracolStore();
+      if (preActivate) {
+        await store.saveRegionalEvents([{ uf: REGIONAL_TEST_UF_CHASE_TARGET, activeEventId: 'mg-teste-velocidade-alvo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+      }
+      const harness = await createHarness(store, { regionalEventsCatalog: chaseAgainstOnlyCatalog() });
+      const player = await connectClient(harness.address);
+      await register(player, 'Alvo');
+      await selectCity(player, '3100104'); // Abadia dos Dourados, MG
+      harness.now.value += 50_000;
+      expect((await buySpeed(player)).ok).toBe(true);
+      return sync(player);
+    }
+
+    const withEvent = await setup(true);
+    const withoutEvent = await setup(false);
+    expect(withEvent.ok && withoutEvent.ok).toBe(true);
+    if (!withEvent.ok || !withoutEvent.ok) return;
+    expect(withEvent.state.world.snail.etaMs).toBeCloseTo((withoutEvent.state.world.snail.etaMs ?? 0) / 2, 0);
+  });
+
+  it('velocidadeContraAlvoNoEstado não altera a perseguição quando o alvo mora fora do estado ativo', async () => {
+    async function setup(preActivate: boolean) {
+      const store = new MemoryCaracolStore();
+      if (preActivate) {
+        await store.saveRegionalEvents([{ uf: REGIONAL_TEST_UF_CHASE_TARGET, activeEventId: 'mg-teste-velocidade-alvo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+      }
+      const harness = await createHarness(store, { regionalEventsCatalog: chaseAgainstOnlyCatalog() });
+      const player = await connectClient(harness.address);
+      await register(player, 'Alvo2');
+      await selectCity(player, '1200013'); // AC, fora do estado do evento
+      harness.now.value += 50_000;
+      expect((await buySpeed(player)).ok).toBe(true);
+      return sync(player);
+    }
+
+    const withEvent = await setup(true);
+    const withoutEvent = await setup(false);
+    expect(withEvent.ok && withoutEvent.ok).toBe(true);
+    if (!withEvent.ok || !withoutEvent.ok) return;
+    expect(withEvent.state.world.snail.etaMs).toBeCloseTo(withoutEvent.state.world.snail.etaMs ?? 0, 0);
+  });
+
+  it('escondeJogador ativo faz hidden:true no stateFor da conta, mesmo sem Blooper', async () => {
+    const catalog: CaracolRegionalEventDefinition[] = [{
+      id: 'am-teste-esconde',
+      uf: 'AM',
+      nome: 'Evento de teste esconde',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'escondeJogador' },
+    }];
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'AM', activeEventId: 'am-teste-esconde', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: catalog });
+    const player = await connectClient(harness.address);
+    await register(player, 'Escondido');
+    await selectCity(player, '1300029'); // Alvarães, AM
+
+    const state = await sync(player);
+    expect(state.ok).toBe(true);
+    if (!state.ok) return;
+    expect(state.state.world.snail.hidden).toBe(true);
+    expect(state.state.world.snail.lat).toBeNull();
+  });
+
+  it('etaBorrado ativo arredonda etaMs/distanceKm ao passo configurado, sem esconder o resto do estado', async () => {
+    const stepMinutos = 30;
+    const stepKm = 50;
+    const catalog: CaracolRegionalEventDefinition[] = [{
+      id: 'ce-teste-eta',
+      uf: 'CE',
+      nome: 'Seca de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'etaBorrado', passoMinutos: stepMinutos, passoKm: stepKm },
+    }];
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'CE', activeEventId: 'ce-teste-eta', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: catalog });
+    const player = await connectClient(harness.address);
+    await register(player, 'Nebuloso');
+    await selectCity(player, '2300101'); // Abaiara, CE
+
+    const state = await sync(player);
+    expect(state.ok).toBe(true);
+    if (!state.ok) return;
+    expect(state.state.world.snail.hidden).toBe(false);
+    expect(state.state.world.snail.lat).not.toBeNull();
+    const distance = state.state.world.snail.distanceKm!;
+    const etaMs = state.state.world.snail.etaMs!;
+    expect(distance % stepKm).toBe(0);
+    expect(etaMs % (stepMinutos * 60_000)).toBe(0);
   });
 });

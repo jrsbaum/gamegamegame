@@ -223,12 +223,12 @@ fatores já usado por `coin`/`lightning`
 - Skill: NONE
 
 **Done when**:
-- [ ] Um evento `precoConta` ativo no estado da conta muda o valor de `redirectCost`/`speedCost` exibido — REGCLIM-07 (efeito jogador), teste em `tests/caracol.integration.test.ts` compara custo com e sem o evento ativo
-- [ ] Um evento `velocidadeMundo` ativo muda a velocidade de perseguição contra qualquer alvo, e um `velocidadeContraAlvoNoEstado` só muda quando o alvo atual mora no estado ativo — REGCLIM-13, dois testes distintos
-- [ ] Um evento `escondeJogador` ativo faz `hidden: true` no `stateFor` da conta, mesmo sem Blooper — teste dedicado
-- [ ] Um evento `etaBorrado` ativo faz `etaMs`/`distanceKm` virarem um valor arredondado ao passo configurado, não o valor exato — REGCLIM-12, teste dedicado
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
-- [ ] Contagem de testes: pelo menos 4 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 4+ testes a mais que a contagem antes desta task
+- [x] Um evento `precoConta` ativo no estado da conta muda o valor de `redirectCost`/`speedCost` exibido — REGCLIM-07 (efeito jogador), teste em `tests/caracol.integration.test.ts` compara custo com e sem o evento ativo
+- [x] Um evento `velocidadeMundo` ativo muda a velocidade de perseguição contra qualquer alvo, e um `velocidadeContraAlvoNoEstado` só muda quando o alvo atual mora no estado ativo — REGCLIM-13, dois testes distintos (mais um terceiro que confirma que fora do estado o fator não se aplica)
+- [x] Um evento `escondeJogador` ativo faz `hidden: true` no `stateFor` da conta, mesmo sem Blooper — teste dedicado
+- [x] Um evento `etaBorrado` ativo faz `etaMs`/`distanceKm` virarem um valor arredondado ao passo configurado, não o valor exato — REGCLIM-12, teste dedicado
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
+- [x] Contagem de testes: pelo menos 4 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 6 testes a mais que a contagem antes desta task (13 → 19)
 
 **Tests**: integration
 **Gate**: full

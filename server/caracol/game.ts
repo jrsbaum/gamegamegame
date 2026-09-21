@@ -71,6 +71,10 @@ import {
   emptyRegionalEventState,
   validateCatalog as validateRegionalEventsCatalog,
   REGIONAL_UF_CODES,
+  priceFactorFor,
+  worldSpeedFactor,
+  chaseSpeedFactorAgainst,
+  playerViewOverridesFor,
   type RegionalEventState,
 } from './regional-events';
 
@@ -1069,19 +1073,29 @@ export class CaracolGameManager {
     return this.world.speedLevel === 0 ? CARACOL_BASE_SPEED_KMH : this.world.speedLevel * 100;
   }
 
-  /** Velocidade real da perseguição: a Banana acelera só contra o próprio dono. */
+  /**
+   * Velocidade real da perseguição: a Banana acelera só contra o próprio dono;
+   * `velocidadeMundo` de qualquer estado ativo acelera contra todo mundo; e
+   * `velocidadeContraAlvoNoEstado` só quando o alvo mora no estado ativo.
+   */
   private chaseSpeedKmh(target: RuntimeAccount | undefined, now = this.clock()): number {
-    return this.speedKmh() * (target && this.activeEffect(target.id, 'banana', now) ? BANANA_SPEED_FACTOR : 1);
+    const banana = target && this.activeEffect(target.id, 'banana', now) ? BANANA_SPEED_FACTOR : 1;
+    const world = worldSpeedFactor(this.regionalEventsCatalog, this.regionalEventsByUf);
+    const against = chaseSpeedFactorAgainst(this.regionalEventsCatalog, target?.cityUf ?? null, this.regionalEventsByUf);
+    return this.speedKmh() * banana * world * against;
   }
 
   /**
    * Fórmula única de preço: max(piso, floor(base × 0,75^desconto × fatores)).
    * A tela e a cobrança leem daqui, então nunca discordam. O desconto pessoal
-   * só entra onde já entrava (redirect e aceleração); Moeda e Raio entram em tudo.
+   * só entra onde já entrava (redirect e aceleração); Moeda, Raio e o evento
+   * regional (`precoConta`) ativo no estado da conta entram em tudo.
    */
   private price(account: CaracolAccountRecord, baseCost: number, minimum: number, withDiscount: boolean): number {
     const now = this.clock();
-    const factor = (this.activeEffect(account.id, 'coin', now) ? 0.5 : 1) * (this.activeEffect(null, 'lightning', now) ? 2 : 1);
+    const factor = (this.activeEffect(account.id, 'coin', now) ? 0.5 : 1)
+      * (this.activeEffect(null, 'lightning', now) ? 2 : 1)
+      * priceFactorFor(this.regionalEventsCatalog, account.cityUf, this.regionalEventsByUf);
     const discount = withDiscount ? 0.75 ** account.speedDiscountLevel : 1;
     return Math.max(minimum, Math.floor(baseCost * discount * factor));
   }
@@ -1341,7 +1355,14 @@ export class CaracolGameManager {
       ? distanceKm({ lat: this.world.snailLat, lon: this.world.snailLon }, { lat: target.cityLat, lon: target.cityLon })
       : null;
     // Blooper esconde no servidor: a posição nunca sai daqui para quem tem tinta.
-    const hidden = this.activeEffect(account.id, 'blooper', now) !== null;
+    // escondeJogador (evento regional do estado da conta) esconde do mesmo jeito.
+    const regionalView = playerViewOverridesFor(this.regionalEventsCatalog, account.cityUf, this.regionalEventsByUf);
+    const hidden = this.activeEffect(account.id, 'blooper', now) !== null || regionalView.hidden;
+    const rawEtaMs = hidden || distance === null ? null : distance / this.chaseSpeedKmh(target, now) * 3_600_000;
+    // etaBorrado (ex: seca do Ceará): arredonda distância/ETA a uma faixa grosseira, sem esconder o resto do estado.
+    const bucket = !hidden ? regionalView.etaBucket : null;
+    const distanceOut = hidden ? null : bucket ? Math.round(distance! / bucket.km) * bucket.km : distance;
+    const etaOut = rawEtaMs === null ? null : bucket ? Math.round(rawEtaMs / (bucket.minutos * 60_000)) * (bucket.minutos * 60_000) : rawEtaMs;
     return {
       world: {
         snail: {
@@ -1353,8 +1374,8 @@ export class CaracolGameManager {
           speedCost: this.speedCost(account),
           targetAccountId: target?.id ?? null,
           targetNickname: target?.nickname ?? null,
-          distanceKm: hidden ? null : distance,
-          etaMs: hidden || distance === null ? null : distance / this.chaseSpeedKmh(target, now) * 3_600_000,
+          distanceKm: distanceOut,
+          etaMs: etaOut,
           redirectCost: this.redirectCost(account),
           outfit: { ...this.world.snailCosmeticOutfit },
         },
