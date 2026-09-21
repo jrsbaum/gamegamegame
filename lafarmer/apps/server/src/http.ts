@@ -109,6 +109,14 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     try { return reply.code(201).send({ item: await game.plant(player.id, parsed.data) }); } catch (error) { return sendDomainError(reply, error); }
   });
 
+  app.post("/api/farm/adopt", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ contentId: z.string(), x: z.number().optional(), y: z.number().optional() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_animal" });
+    try { return reply.code(201).send({ item: await game.adopt(player.id, parsed.data) }); } catch (error) { return sendDomainError(reply, error); }
+  });
+
   app.post("/api/farm/:itemId/care", async (request, reply) => {
     const player = await authenticatedPlayer(request, auth);
     if (!player) return reply.code(401).send({ error: "unauthorized" });
@@ -119,6 +127,12 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     const player = await authenticatedPlayer(request, auth);
     if (!player) return reply.code(401).send({ error: "unauthorized" });
     try { return reply.send(await game.harvest(player.id, (request.params as { itemId: string }).itemId)); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.post("/api/farm/:itemId/collect", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    try { return reply.send(await game.collect(player.id, (request.params as { itemId: string }).itemId)); } catch (error) { return sendDomainError(reply, error); }
   });
 
   app.get("/api/market", async (_request, reply) => reply.send({ listings: (await persistence.repositories.market.listActive()) }));

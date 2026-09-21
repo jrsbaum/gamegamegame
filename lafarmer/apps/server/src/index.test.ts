@@ -130,6 +130,16 @@ describe("LaFarmer server", () => {
     expect(purchase.json().coins).toBe(970);
     expect((await app.inject({ method: "GET", url: "/api/market" })).json().listings).toHaveLength(0);
   });
+
+  it("adopts an animal through the same catalog-driven farm entity flow", async () => {
+    const app = createApp();
+    apps.push(app);
+    const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Rancher", password: testPassword, credentialsSaved: true } });
+    const adopted = await app.inject({ method: "POST", url: "/api/farm/adopt", headers: { authorization: `Bearer ${register.json().token}` }, payload: { contentId: "cow" } });
+    expect(adopted.statusCode).toBe(201);
+    expect(adopted.json().item.stageId).toBe("baby");
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${register.json().token}` } })).json().player.coins).toBe(900);
+  });
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {

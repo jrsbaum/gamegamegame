@@ -7,7 +7,7 @@ const color = (hex: string): number => Number(`0x${hex.slice(1)}`);
 
 interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onMarket?: () => void; }
 type RemoteView = { body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text };
-type FarmView = { id: string; ready: boolean; body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text; x: number; y: number };
+type FarmView = { id: string; contentId: string; ready: boolean; body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text; x: number; y: number };
 
 export class WorldScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Graphics;
@@ -40,6 +40,7 @@ export class WorldScene extends Phaser.Scene {
         if (payload.inventory) worldData.onInventory?.(payload.inventory);
         if (payload.item?.id) this.removeFarmItem(payload.item.id);
       }
+      if (message.type === 'farm.collected') { const payload = message as { inventory?: Record<string, number>; item?: Record<string, unknown> }; if (payload.inventory) worldData.onInventory?.(payload.inventory); if (payload.item) this.renderFarmItem(payload.item); }
       if (message.type === 'farm.updated') { const item = message.item as Record<string, unknown> | undefined; if (item) this.renderFarmItem(item); }
       if (message.type === 'hello') {
         const snapshot = message.snapshot as { players?: Array<Record<string, unknown>>; farmItems?: Array<Record<string, unknown>> };
@@ -83,7 +84,7 @@ export class WorldScene extends Phaser.Scene {
 
   private interact(): void {
     const nearest = [...this.farmItems.values()].sort((a, b) => this.distance(a.x, a.y) - this.distance(b.x, b.y))[0];
-    if (nearest && this.distance(nearest.x, nearest.y) < 130) { this.worldData.realtime.action(nearest.ready ? 'farm.harvest' : 'farm.care', { itemId: nearest.id }); return; }
+    if (nearest && this.distance(nearest.x, nearest.y) < 130) { const action = nearest.contentId === 'cow' || nearest.contentId === 'dinosaur' ? (nearest.ready ? 'farm.collect' : 'farm.care') : (nearest.ready ? 'farm.harvest' : 'farm.care'); this.worldData.realtime.action(action, { itemId: nearest.id }); return; }
     if (Phaser.Math.Distance.Between(this.player.x, this.player.y, 1710, 680) < 190) this.worldData.onMarket?.();
   }
 
@@ -95,11 +96,13 @@ export class WorldScene extends Phaser.Scene {
     const rawPosition = item.position as { x?: number; y?: number } | undefined;
     const position = this.gridToWorld(Number(rawPosition?.x ?? 0), Number(rawPosition?.y ?? 0));
     const body = this.add.graphics().setDepth(45).setPosition(position.x, position.y);
+    const contentId = String(item.contentId ?? 'tomato');
     const ready = Boolean(item.ready);
-    body.fillStyle(color(ready ? palette.amber : palette.forest), 1).fillEllipse(0, 0, ready ? 25 : 15, ready ? 25 : 15);
-    body.fillStyle(color(palette.coral), 1).fillCircle(-6, -3, ready ? 5 : 3).fillCircle(6, 2, ready ? 5 : 3);
+    if (contentId === 'cow') { body.fillStyle(color('#f5eee0'), 1).fillRoundedRect(-24, -16, 48, 28, 12).fillStyle(color(palette.soil), 1).fillCircle(10, -6, 5); body.fillStyle(color(palette.forest), 1).fillCircle(22, -8, 3); }
+    else if (contentId === 'dinosaur') { body.fillStyle(color('#5d9854'), 1).fillEllipse(0, 0, 50, 28).fillStyle(color(palette.amber), 1).fillCircle(16, -9, 4); }
+    else { body.fillStyle(color(ready ? palette.amber : palette.forest), 1).fillEllipse(0, 0, ready ? 25 : 15, ready ? 25 : 15); body.fillStyle(color(palette.coral), 1).fillCircle(-6, -3, ready ? 5 : 3).fillCircle(6, 2, ready ? 5 : 3); }
     const tag = this.label(ready ? 'pronto' : 'crescendo', position.x, position.y - 28, 9, palette.forest);
-    this.farmItems.set(id, { id, ready, body, tag, x: position.x, y: position.y });
+    this.farmItems.set(id, { id, contentId, ready, body, tag, x: position.x, y: position.y });
   }
 
   private removeFarmItem(id: string): void { const item = this.farmItems.get(id); if (!item) return; item.body.destroy(); item.tag.destroy(); this.farmItems.delete(id); }

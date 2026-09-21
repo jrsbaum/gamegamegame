@@ -65,8 +65,10 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
       } else {
         const payload = readPayload(message);
         if (message.type === "farm.plant") send(client, { type: "farm.updated", item: await game.plant(client.playerId!, { contentId: String(payload.contentId), x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
+        if (message.type === "farm.adopt") send(client, { type: "farm.updated", item: await game.adopt(client.playerId!, { contentId: String(payload.contentId), x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
         if (message.type === "farm.care") send(client, { type: "farm.updated", item: await game.care(client.playerId!, String(payload.itemId)) });
         if (message.type === "farm.harvest") { const result = await game.harvest(client.playerId!, String(payload.itemId)); send(client, { type: "farm.harvested", ...result }); }
+        if (message.type === "farm.collect") { const result = await game.collect(client.playerId!, String(payload.itemId)); send(client, { type: "farm.collected", ...result }); }
         if (message.type === "market.list") send(client, { type: "market.updated", listing: await game.createListing(client.playerId!, { contentId: String(payload.contentId), quantity: Number(payload.quantity), unitPrice: Number(payload.unitPrice) }) });
         if (message.type === "market.buy") { const result = await game.buyListing(client.playerId!, String(payload.listingId)); send(client, { type: "market.purchased", ...result }); }
       }
@@ -107,7 +109,7 @@ function isMoveMessage(value: unknown): value is { type: "move"; actionId: strin
 function isSupportedMessage(value: unknown): value is Record<string, unknown> & { type: string } {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
-  return typeof message.type === "string" && ["move", "farm.plant", "farm.care", "farm.harvest", "market.list", "market.buy"].includes(message.type);
+  return typeof message.type === "string" && ["move", "farm.plant", "farm.adopt", "farm.care", "farm.harvest", "farm.collect", "market.list", "market.buy"].includes(message.type);
 }
 
 function readPayload(value: Record<string, unknown>): Record<string, unknown> {
