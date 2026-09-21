@@ -16,8 +16,11 @@ export type Session = {
 
 export type Specialization = "fruits" | "vegetables" | "dinosaurs";
 
+export type Polygon = readonly [number, number][];
+
 export type LandOption = {
   id: string;
+  regionId: string;
   x: number;
   y: number;
   biome: string;
@@ -26,6 +29,9 @@ export type LandOption = {
   summary: string;
   fertility: number;
   nearbyNeighbors: number;
+  polygon: Polygon;
+  connectionId: string | null;
+  locked: boolean;
 };
 
 export type LandPlot = LandOption;
@@ -37,6 +43,8 @@ export type PlayerState = {
   farmName: string;
   specialization: Specialization | null;
   plot: LandPlot | null;
+  homeRegionId: string | null;
+  currentRegionId: string | null;
   appearance: PlayerAppearance;
   coins: number;
   inventory: Record<string, number>;
@@ -49,9 +57,24 @@ export type PlayerState = {
   };
 };
 
+export type FarmStructureType = "house" | "field" | "orchard" | "animal_pen" | "dinosaur_enclosure";
+export type FarmStructure = {
+  id: string;
+  ownerId: string;
+  regionId: string;
+  type: FarmStructureType;
+  footprint: Polygon;
+  capacity: number;
+  cost: number;
+  state: "planned" | "built";
+  position: { x: number; y: number };
+};
+
 export type FarmItem = {
   id: string;
   ownerId: string;
+  regionId: string;
+  structureId: string | null;
   contentId: string;
   plantedAt: number;
   lastCareAt: number | null;
@@ -102,6 +125,18 @@ export type Direction = "up" | "down" | "left" | "right";
 export type MoveCommand = {
   actionId: string;
   direction: Direction;
+  sprint?: boolean;
+};
+
+export type WorldPresence = {
+  id: string;
+  name: string;
+  farmName: string;
+  homeRegionId: string | null;
+  currentRegionId: string | null;
+  appearance: PlayerAppearance;
+  position: { x: number; y: number };
+  online: boolean;
 };
 
 export type MoveResult = {
@@ -115,6 +150,8 @@ export type WorldSnapshot = {
   player: PlayerState;
   players: PlayerState[];
   farmItems: FarmItemView[];
+  structures: FarmStructure[];
   listings: MarketListing[];
+  presence: WorldPresence[];
   offlineProgress: { coins: number; completedCycles: number; blockedByCapacity: number };
 };

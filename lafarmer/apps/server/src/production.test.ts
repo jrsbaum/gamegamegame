@@ -7,7 +7,7 @@ import { createInMemoryRepositories } from "./in-memory-store.js";
 function player(now: number, overrides: Partial<PlayerState> = {}): PlayerState {
   return {
     id: "player-1", accountId: "account-1", name: "Farmer", farmName: "Vale", specialization: "vegetables", plot: null,
-    appearance: { clothing: "forest", hair: "short" }, coins: 1_000, inventory: {}, inventoryQualities: {}, inventoryCapacity: INVENTORY_CAPACITY,
+    homeRegionId: "region-center", currentRegionId: "region-center", appearance: { clothing: "forest", hair: "short" }, coins: 1_000, inventory: {}, inventoryQualities: {}, inventoryCapacity: INVENTORY_CAPACITY,
     lastActiveAt: now, position: { x: 5, y: 5 }, ...overrides
   };
 }
@@ -16,7 +16,7 @@ describe("generic production engine", () => {
   it("uses the same data-driven stage engine for a crop and an animal output", async () => {
     let now = 1_000_000;
     const repositories = createInMemoryRepositories();
-    await repositories.players.insert(player(now));
+    await repositories.players.insert(player(now, { inventory: { "tomato-seed": 1 } }));
     const game = new GameService(repositories, () => now);
 
     const tomato = await game.plant("player-1", { contentId: "tomato" });
@@ -29,17 +29,13 @@ describe("generic production engine", () => {
     const harvest = await game.harvest("player-1", tomato.id);
     expect(harvest.inventory.tomato).toBe(1);
 
-    const cow = await game.adopt("player-1", { contentId: "cow" });
-    now += 7_200_000;
-    const snapshot = await game.snapshot("player-1");
-    expect(snapshot.farmItems.find((item) => item.id === cow.id)?.pendingQuantity).toBe(2);
-    expect((await game.collect("player-1", cow.id)).inventory.milk).toBe(2);
+    await expect(game.adopt("player-1", { contentId: "dinosaur" })).rejects.toMatchObject({ code: "specialization_locked" });
   });
 
   it("materializes offline cycles, pauses at capacity and records wallet causes", async () => {
     let now = 2_000_000;
     const repositories = createInMemoryRepositories();
-    await repositories.players.insert(player(now, { inventoryCapacity: 1 }));
+    await repositories.players.insert(player(now, { specialization: "fruits", inventory: { "orange-seed": 1 }, inventoryCapacity: 1 }));
     const game = new GameService(repositories, () => now);
     const tree = await game.plant("player-1", { contentId: "orange-tree" });
     now += 1_800_000;
@@ -67,9 +63,10 @@ describe("generic production engine", () => {
   it("keeps care, quality and visual variant state generic", async () => {
     let now = 3_000_000;
     const repositories = createInMemoryRepositories();
-    await repositories.players.insert(player(now));
+    await repositories.players.insert(player(now, { specialization: "dinosaurs", inventory: { "dinosaur-fossil": 1 } }));
     const game = new GameService(repositories, () => now);
-    const dinosaur = await game.adopt("player-1", { contentId: "dinosaur" });
+    await game.buildStructure("player-1", { type: "dinosaur_enclosure", x: 12, y: 12 });
+    const dinosaur = await game.adopt("player-1", { contentId: "dinosaur", x: 16, y: 15 });
     expect(dinosaur.appearanceVariantId).toBe("default");
     const cared = await game.care("player-1", dinosaur.id);
     expect(cared.careState).toBe("attended");

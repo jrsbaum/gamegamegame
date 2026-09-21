@@ -6,7 +6,6 @@ import { GameError, GameService } from "./game-service.js";
 import type { RepositoryBundle } from "./repositories.js";
 import { createPersistence } from "./persistence.js";
 import { attachWebSocketGateway } from "./websocket-gateway.js";
-import { buildLandOptions } from "./world-service.js";
 
 const registerSchema = z.object({ nick: z.string(), password: z.string(), credentialsSaved: z.literal(true) });
 const loginSchema = z.object({ nick: z.string(), password: z.string() });
@@ -34,7 +33,7 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     environment: options.environment
   });
   const auth = new AuthService(persistence.repositories);
-  const game = new GameService({ players: persistence.repositories.players, farm: persistence.repositories.farm, market: persistence.repositories.market, wallet: persistence.repositories.wallet });
+  const game = new GameService({ players: persistence.repositories.players, farm: persistence.repositories.farm, structures: persistence.repositories.structures, market: persistence.repositories.market, wallet: persistence.repositories.wallet });
   const app = Fastify({ logger: options.logger ?? false });
   app.addHook('onRequest', async (request, reply) => {
     const allowedOrigin = process.env.CORS_ORIGIN ?? request.headers.origin ?? '';
@@ -109,7 +108,27 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
   app.get("/api/world/land-options", async (request, reply) => {
     const player = await authenticatedPlayer(request, auth);
     if (!player) return reply.code(401).send({ error: "unauthorized" });
-    return reply.send({ options: buildLandOptions(await persistence.repositories.players.listAll(), player.id) });
+    return reply.send({ options: await auth.landOptions(player.id) });
+  });
+
+  app.get("/api/world/frontier-options", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    return reply.send({ options: await auth.landOptions(player.id) });
+  });
+
+  app.get("/api/world/overview", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    return reply.send({ regions: await auth.worldOverview(player.id) });
+  });
+
+  app.post("/api/world/region/reserve", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ regionId: z.string() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_land" });
+    try { return reply.send(await auth.reserveRegion(player.id, parsed.data.regionId)); } catch (error) { return sendDomainError(reply, error); }
   });
 
   app.get("/api/farm", async (request, reply) => {
@@ -132,6 +151,32 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     const parsed = z.object({ contentId: z.string(), x: z.number().optional(), y: z.number().optional() }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_animal" });
     try { return reply.code(201).send({ item: await game.adopt(player.id, parsed.data) }); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.get("/api/farm/structures", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    return reply.send({ structures: await persistence.repositories.structures.listByOwnerId(player.id) });
+  });
+
+  app.post("/api/farm/structures", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ type: z.enum(["house", "field", "orchard", "animal_pen", "dinosaur_enclosure"]), x: z.number().optional(), y: z.number().optional() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_structure" });
+    try { return reply.code(201).send({ structure: await game.buildStructure(player.id, parsed.data) }); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.get("/api/shop/origin", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    return reply.send({ offers: await game.originOffers(player.id) });
+  });
+
+  app.post("/api/shop/origin/:offerId/buy", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    try { return reply.send(await game.buyOriginOffer(player.id, (request.params as { offerId: string }).offerId)); } catch (error) { return sendDomainError(reply, error); }
   });
 
   app.post("/api/farm/:itemId/care", async (request, reply) => {
@@ -186,9 +231,9 @@ async function authenticatedPlayer(request: FastifyRequest, auth: AuthService) {
 function sendDomainError(reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }, error: unknown) {
   if (error instanceof AuthError) {
     const status = error.code === "invalid_credentials" ? 401 : error.code === "nick_taken" ? 409 : 400;
-    return reply.code(status).send({ error: error.code });
+    return reply.code(status).send({ error: error.code, ...(error.code === "invalid_nick" ? { message: "Use de 3 a 20 caracteres, sem espaços. Você pode usar hífen ou underline." } : {}) });
   }
-  if (error instanceof GameError) return reply.code(["player_not_found", "farm_item_not_found", "listing_not_found"].includes(error.code) ? 404 : 400).send({ error: error.code });
+  if (error instanceof GameError) return reply.code(["player_not_found", "farm_item_not_found", "listing_not_found", "region_not_found"].includes(error.code) ? 404 : ["region_reserved", "structure_full", "cannot_buy_own_listing"].includes(error.code) ? 409 : 400).send({ error: error.code });
   return reply.code(500).send({ error: "internal_error" });
 }
 
