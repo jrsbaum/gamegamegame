@@ -135,10 +135,10 @@ IF NOT EXISTS` + par Memory/Pg) já presente no arquivo
 - Skill: NONE
 
 **Done when**:
-- [ ] `loadSnapshot()` das duas implementações devolve `regionalEvents` populado a partir do que foi salvo por `saveRegionalEvents` — round-trip testado em `tests/caracol-regional-events.test.ts`
-- [ ] `recordRegionalClaim` lançando/recusando quando a PK composta `(uf, activatedAt, accountId)` já existe — asserido em `tests/caracol-regional-events.test.ts`
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
-- [ ] Contagem de testes: pelo menos 4 testes novos (round-trip de evento, round-trip de claim, claim duplicado recusado, snapshot vazio inicial) — `npx vitest run tests/caracol-regional-events.test.ts` reporta 4+ nesse arquivo
+- [x] `loadSnapshot()` das duas implementações devolve `regionalEvents` populado a partir do que foi salvo por `saveRegionalEvents` — round-trip testado em `tests/caracol-regional-events.test.ts` (SPEC_DEVIATION: só `MemoryCaracolStore` é exercitada por teste automatizado, como o resto do arquivo já faz para `PgCaracolStore`; sem Postgres real disponível no ambiente de execução, a implementação Pg segue o mesmo padrão de `saveWorld`/`writeAccount` já usado no arquivo e foi revisada por leitura)
+- [x] `recordRegionalClaim` lançando/recusando quando a PK composta `(uf, activatedAt, accountId)` já existe — asserido em `tests/caracol-regional-events.test.ts`
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
+- [x] Contagem de testes: pelo menos 4 testes novos (round-trip de evento, round-trip de claim, claim duplicado recusado, snapshot vazio inicial) — `npx vitest run tests/caracol-regional-events.test.ts` reporta 4+ nesse arquivo
 
 **Tests**: integration
 **Gate**: quick
