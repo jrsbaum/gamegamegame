@@ -221,6 +221,7 @@ export class CaracolGameManager {
     socket.on('caracol:push-subscribe', (payload, ack) => { void this.afterReady(() => this.subscribePush(socket, payload, ack)); });
     socket.on('caracol:push-unsubscribe', (payload, ack) => { void this.afterReady(() => this.unsubscribePush(socket, payload, ack)); });
     socket.on('caracol:history', (payload, ack) => { void this.afterReady(() => this.history(socket, payload, ack)); });
+    socket.on('caracol:regional-claim', (ack) => { void this.afterReady(() => this.enqueueMutation(() => this.claimRegionalBonus(socket, ack))); });
     socket.on('caracol:logout', () => { void this.afterReady(() => this.logout(socket)); });
     socket.on('disconnect', () => { void this.afterReady(() => this.disconnect(socket)); });
   }
@@ -795,6 +796,43 @@ export class CaracolGameManager {
     const event = this.regionalEventsCatalog.find((candidate) => candidate.id === state.activeEventId);
     if (event?.jogador?.tipo !== 'escudoContaCarga') return false;
     return this.store.recordRegionalClaim({ uf, activatedAt: state.activatedAt, accountId: target.id, eventId: event.id, claimedAt: now });
+  }
+
+  /**
+   * Resgate do bônus fixo de um evento `bonusResgatavel` (ex: Oktoberfest de
+   * SC) ativo no estado da conta: uma vez por conta, por ativação, mesma
+   * tabela de claim do escudo de carga (T6).
+   */
+  private async claimRegionalBonus(socket: CaracolSocket, ack: (result: CaracolActionResult) => void): Promise<void> {
+    const account = this.authenticatedAccount(socket, ack);
+    if (!account) return;
+    const now = this.clock();
+    const uf = account.cityUf;
+    const state = uf ? this.regionalEventsByUf.get(uf) : undefined;
+    const event = state?.activeEventId ? this.regionalEventsCatalog.find((candidate) => candidate.id === state.activeEventId) : undefined;
+    if (!uf || !state?.activeEventId || state.activatedAt === null || event?.jogador?.tipo !== 'bonusResgatavel') {
+      ack(this.failure('REGIONAL_NO_BONUS', 'Não há bônus regional para resgatar agora.'));
+      return;
+    }
+    const recorded = await this.store.recordRegionalClaim({ uf, activatedAt: state.activatedAt, accountId: account.id, eventId: event.id, claimedAt: now });
+    if (!recorded) {
+      ack(this.failure('REGIONAL_ALREADY_CLAIMED', 'Você já resgatou esse bônus nesta ativação.'));
+      return;
+    }
+    await this.settleCoins(account);
+    const value = event.jogador.valor;
+    const committed = await this.commitPlan({ accounts: [[account, (target) => { target.coins += value; }]] }, ack);
+    if (!committed) return;
+    await this.recordHistory({
+      type: 'coins',
+      message: `${account.nickname} resgatou ${value} moeda${value === 1 ? '' : 's'} de ${event.nome}.`,
+      actorNickname: account.nickname,
+      targetNickname: null,
+      amount: value,
+      createdAt: now,
+    });
+    ack({ ok: true, state: this.stateFor(account) });
+    this.broadcastState();
   }
 
   /**

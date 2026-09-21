@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { io as createClient, type Socket } from 'socket.io-client';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, InterServerEvents, ServerToClientEvents, SocketData } from '../shared/protocol';
-import type { CaracolActionResult, CaracolCosmeticSlot, CaracolCosmeticWearer, CaracolHistoryResult, CaracolNoticePayload, CaracolRegionalEventDefinition, CaracolStateView } from '../shared/caracol';
+import { CARACOL_STARTING_COINS, type CaracolActionResult, type CaracolCosmeticSlot, type CaracolCosmeticWearer, type CaracolHistoryResult, type CaracolNoticePayload, type CaracolRegionalEventDefinition, type CaracolStateView } from '../shared/caracol';
 import { createCaracolManager, type CaracolGameManager } from '../server/caracol/game';
 import { MemoryCaracolStore } from '../server/caracol/store';
 
@@ -117,6 +117,10 @@ function equipCosmetic(client: TestSocket, wearer: CaracolCosmeticWearer, slot: 
 
 function history(client: TestSocket, beforeId: string | null = null): Promise<CaracolHistoryResult> {
   return new Promise((resolve) => client.emit('caracol:history', { beforeId, limit: 20 }, resolve));
+}
+
+function regionalClaim(client: TestSocket): Promise<CaracolActionResult> {
+  return new Promise((resolve) => client.emit('caracol:regional-claim', resolve));
 }
 
 const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -812,5 +816,61 @@ describe('escudo de carga regional', () => {
     if (!second.ok) return;
     // segunda tentativa na mesma ativação: já não há escudo regional disponível, o ataque vale
     expect(second.state.world.snail.targetNickname).toBe('Protegido2');
+  });
+});
+
+describe('bônus resgatável regional', () => {
+  const BONUS_VALUE = 40;
+
+  function bonusCatalog(): CaracolRegionalEventDefinition[] {
+    return [{
+      id: 'sc-teste-bonus',
+      uf: 'SC',
+      nome: 'Oktoberfest de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'bonusResgatavel', valor: BONUS_VALUE },
+    }];
+  }
+
+  it('resgata o bônus ativo e credita exatamente o valor configurado, uma vez', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'SC', activeEventId: 'sc-teste-bonus', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: bonusCatalog() });
+    const player = await connectClient(harness.address);
+    const created = await register(player, 'Festeiro');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await selectCity(player, '4200051'); // Abdon Batista, SC
+
+    const claimed = await regionalClaim(player);
+    expect(claimed.ok).toBe(true);
+    if (!claimed.ok) return;
+    expect(claimed.state.you.coins).toBe(CARACOL_STARTING_COINS + BONUS_VALUE);
+  });
+
+  it('recusa um segundo resgate na mesma ativação com REGIONAL_ALREADY_CLAIMED, sem creditar de novo', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'SC', activeEventId: 'sc-teste-bonus', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: bonusCatalog() });
+    const player = await connectClient(harness.address);
+    await register(player, 'Festeiro2');
+    await selectCity(player, '4200051');
+
+    const first = await regionalClaim(player);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const balanceAfterFirst = first.state.you.coins;
+
+    const second = await regionalClaim(player);
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe('REGIONAL_ALREADY_CLAIMED');
+
+    const state = await sync(player);
+    expect(state.ok).toBe(true);
+    if (!state.ok) return;
+    expect(state.state.you.coins).toBe(balanceAfterFirst);
   });
 });

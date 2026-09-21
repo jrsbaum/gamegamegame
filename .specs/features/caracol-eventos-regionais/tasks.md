@@ -280,10 +280,10 @@ tentativa na mesma ativação falha com `REGIONAL_ALREADY_CLAIMED` sem creditar 
 - Skill: NONE
 
 **Done when**:
-- [ ] Resgatar um `bonusResgatavel` ativo credita exatamente `valor` moedas uma vez — REGCLIM-14, teste dedicado
-- [ ] Uma segunda chamada de `caracol:regional-claim` na mesma ativação responde `ok: false, code: 'REGIONAL_ALREADY_CLAIMED'` e não altera o saldo — REGCLIM-14, teste dedicado
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
-- [ ] Contagem de testes: pelo menos 2 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 2+ testes a mais que a contagem antes desta task
+- [x] Resgatar um `bonusResgatavel` ativo credita exatamente `valor` moedas uma vez — REGCLIM-14, teste dedicado
+- [x] Uma segunda chamada de `caracol:regional-claim` na mesma ativação responde `ok: false, code: 'REGIONAL_ALREADY_CLAIMED'` e não altera o saldo — REGCLIM-14, teste dedicado
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
+- [x] Contagem de testes: pelo menos 2 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 2 testes a mais que a contagem antes desta task (21 → 23)
 
 **Tests**: integration
 **Gate**: full
