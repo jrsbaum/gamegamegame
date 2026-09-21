@@ -44,5 +44,18 @@ button, input { font: inherit; } button { cursor: pointer; } button:focus-visibl
 .hud-pill { display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(23,63,53,.16); border-radius: 999px; padding: 9px 14px; color: #173f35; background: rgba(247,241,223,.9); box-shadow: 0 6px 18px rgba(23,63,53,.12); font-size: .84rem; font-weight: 800; }
 .coin { width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; color: #173f35; background: #f4b743; font-size: .7rem; } .hud-help { max-width: 275px; color: #173f35; background: rgba(247,241,223,.82); line-height: 1.35; }
 .hud-bottom { position: absolute; right: 18px; bottom: 18px; max-width: 280px; padding: 10px 13px; border-left: 3px solid #f4b743; color: #173f35; background: rgba(247,241,223,.86); font-size: .78rem; line-height: 1.4; } .hud-bottom kbd { border: 1px solid rgba(23,63,53,.25); border-radius: 4px; padding: 1px 4px; background: #fffdf7; font-size: .72rem; }
+.hud-actions { position: absolute; left: 18px; bottom: 18px; display: flex; gap: 8px; align-items: center; pointer-events: auto; flex-wrap: wrap; max-width: 430px; }
+.hud-actions button { border: 1px solid rgba(23,63,53,.2); border-radius: 999px; padding: 10px 13px; color: #173f35; background: rgba(247,241,223,.94); font-size: .78rem; font-weight: 800; box-shadow: 0 6px 18px rgba(23,63,53,.12); }
+.hud-actions button:hover { background: #f4b743; }
+.hud-actions p { width: 100%; margin: 0; color: #fffdf7; text-shadow: 0 1px 3px #173f35; font-size: .78rem; }
+.market-panel { position: absolute; inset: 0; display: grid; place-items: center; padding: 22px; background: rgba(23,63,53,.28); pointer-events: auto; }
+.market-panel[hidden] { display: none; }
+.market-card { width: min(560px, 100%); max-height: min(680px, 90vh); overflow: auto; position: relative; padding: 28px; border: 1px solid rgba(23,63,53,.16); border-radius: 22px; color: #173f35; background: #fffdf7; box-shadow: 0 24px 70px rgba(23,63,53,.28); }
+.market-card h2 { margin: 0; font-family: Georgia, serif; font-size: 2rem; }
+.market-close { position: absolute; top: 18px; right: 18px; border: 1px solid rgba(23,63,53,.2); border-radius: 999px; padding: 7px 11px; color: #173f35; background: transparent; font-weight: 700; }
+.market-list { display: grid; gap: 10px; margin-top: 20px; }
+.market-section-title { margin: 20px 0 0; color: #9b5b3d; font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.market-item { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 13px; border-radius: 13px; background: #f4ecd5; }
+.market-item div { display: grid; gap: 3px; }.market-item span, .market-item small { color: #527064; font-size: .78rem; }.market-item button { border: 0; border-radius: 9px; padding: 9px 12px; color: #173f35; background: #f4b743; font-weight: 800; }
 @media (max-width: 760px) { .entry-grid { grid-template-columns: 1fr; gap: 26px; } .brand-block { max-width: 600px; text-align: center; margin: 0 auto; } .brand-block p { margin-left: auto; margin-right: auto; } .entry-note { margin-top: 18px; } .onboarding-grid { grid-template-columns: 1fr; } .avatar-preview { min-height: 230px; } .hud-help { display: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }

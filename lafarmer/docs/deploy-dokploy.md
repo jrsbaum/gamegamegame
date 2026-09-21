@@ -15,7 +15,7 @@ O Traefik/Dokploy termina TLS e encaminha o mesmo domínio para o serviço corre
 - `/api`, `/ws` e `/healthz` → `server`;
 - demais rotas → `web`.
 
-O WebSocket deve usar `wss://` em produção. A rede externa `proxy` precisa existir no Dokploy e ser a rede compartilhada pelo proxy reverso.
+O WebSocket deve usar `wss://` em produção. A rede externa compartilhada pelo proxy reverso é `dokploy-network` no ambiente atual do Dokploy.
 
 ## Preparação local
 
@@ -45,13 +45,13 @@ Use o domínio final aprovado pelo produto; o valor de exemplo abaixo não é um
 4. Aguarde a propagação e confirme com `nslookup`/`dig` antes de emitir o certificado.
 5. No Dokploy, cadastre o mesmo hostname no serviço web ou na aplicação Compose. O certificado deve ser emitido pelo resolver ACME configurado no proxy.
 
-O IP real, o hostname final, TTL e eventual uso de proxy/CDN ainda precisam ser confirmados no ambiente. Não há valor seguro para inferir esses dados a partir do repositório.
+No ambiente atual, o hostname é `lafarmer.gamegamegame.site`; a validação de DNS já foi confirmada no Dokploy. A emissão do certificado ACME precisa ser validada separadamente antes de considerar o HTTPS encerrado.
 
 ## Configuração no Dokploy
 
 1. Crie uma aplicação Compose a partir do repositório e selecione `infra/dokploy/docker-compose.yml` como arquivo.
 2. Defina o diretório de build como a raiz do repositório para que `context: ../..` resolva corretamente.
-3. Crie/associe a rede externa `proxy` usada pelo Traefik.
+3. Associe o Compose à rede externa `dokploy-network` usada pelo Traefik.
 4. Cadastre as variáveis abaixo no ambiente do Dokploy, nunca no Git:
 
 | Variável | Exigência |
@@ -72,16 +72,16 @@ O IP real, o hostname final, TTL e eventual uso de proxy/CDN ainda precisam ser 
 - O volume `lafarmer-postgres` é a fonte de dados do MVP; configure backup do volume/database no Dokploy antes de produção.
 - Não publique a porta do PostgreSQL.
 - Use logs do `server` para falhas de autenticação, migrações e WebSocket; não registre senhas nem tokens.
-- Rode migrações como etapa explícita e idempotente antes de liberar tráfego. O Compose não inventa um comando de migração porque ele depende do ORM escolhido pelo backend.
+- O servidor aplica o schema PostgreSQL de forma idempotente na inicialização; mantenha o backup do volume antes de qualquer atualização estrutural.
 - O `SESSION_SECRET` não pode mudar entre reinícios, ou as sessões existentes serão invalidadas.
 
 ## Valores que ainda dependem do ambiente
 
 - repositório/branch de produção;
 - hostname final e IP do Dokploy;
-- existência e nome da rede externa `proxy`;
+- existência e nome da rede externa `dokploy-network`;
 - resolver ACME e entrypoint HTTPS do Dokploy;
 - valores de banco e `SESSION_SECRET`;
-- comando oficial de migração do backend;
+- política de backup antes do bootstrap idempotente do schema;
 - política de backup e retenção;
 - autorização para alterar DNS.

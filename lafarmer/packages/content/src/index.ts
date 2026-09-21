@@ -32,8 +32,8 @@ export const CONTENT_CATALOG: readonly ContentDefinition[] = [
     capabilities: ["grow", "care", "harvest"],
     stages: [
       { id: "soil", visualKey: "tomato-soil", durationSeconds: 0 },
-      { id: "sprout", visualKey: "tomato-sprout", durationSeconds: 600 },
-      { id: "ready", visualKey: "tomato-ready", durationSeconds: 600 }
+      { id: "sprout", visualKey: "tomato-sprout", durationSeconds: 15 },
+      { id: "ready", visualKey: "tomato-ready", durationSeconds: 30 }
     ]
   },
   {

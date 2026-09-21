@@ -2,7 +2,7 @@ import type { IncomingMessage, Server } from "node:http";
 import { URL } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import type { AuthService } from "./auth-service.js";
-import type { GameService } from "./game-service.js";
+import { ONLINE_TICK_INTERVAL_MS, type GameService } from "./game-service.js";
 import type { Direction } from "./domain.js";
 
 type Client = WebSocket & { playerId?: string };
@@ -31,13 +31,16 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     const client = raw as Client;
     client.playerId = playerId;
     clients.set(playerId, client);
-    void game.snapshot(playerId).then((snapshot) => send(client, { type: "hello", snapshot }));
+    void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
+    const onlineTimer = setInterval(() => void game.onlineTick(playerId).then((player) => send(client, { type: "wallet.updated", payload: { coins: player.coins } })), ONLINE_TICK_INTERVAL_MS);
 
     client.on("message", (data) => {
       void handleMessage(client, data.toString());
     });
     client.on("close", () => {
+      clearInterval(onlineTimer);
       if (clients.get(playerId) === client) clients.delete(playerId);
+      broadcastExcept(playerId, { type: "player_left", playerId });
     });
   });
 
@@ -49,14 +52,24 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
       send(client, { type: "error", code: "invalid_json" });
       return;
     }
-    if (!isMoveMessage(message)) {
+    if (!isSupportedMessage(message)) {
       send(client, { type: "error", code: "unsupported_message" });
       return;
     }
     try {
-      const result = await game.move(client.playerId!, message);
-      send(client, { type: "move_ack", ...result });
-      broadcastExcept(client.playerId!, { type: "player_moved", playerId: client.playerId, player: result.player });
+      if (isMoveMessage(message)) {
+        const move = readPayload(message);
+        const result = await game.move(client.playerId!, { actionId: String(move.actionId), direction: move.direction as Direction });
+        send(client, { type: "move_ack", ...result });
+        broadcastExcept(client.playerId!, { type: "player_moved", playerId: client.playerId, player: result.player });
+      } else {
+        const payload = readPayload(message);
+        if (message.type === "farm.plant") send(client, { type: "farm.updated", item: await game.plant(client.playerId!, { contentId: String(payload.contentId), x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
+        if (message.type === "farm.care") send(client, { type: "farm.updated", item: await game.care(client.playerId!, String(payload.itemId)) });
+        if (message.type === "farm.harvest") { const result = await game.harvest(client.playerId!, String(payload.itemId)); send(client, { type: "farm.harvested", ...result }); }
+        if (message.type === "market.list") send(client, { type: "market.updated", listing: await game.createListing(client.playerId!, { contentId: String(payload.contentId), quantity: Number(payload.quantity), unitPrice: Number(payload.unitPrice) }) });
+        if (message.type === "market.buy") { const result = await game.buyListing(client.playerId!, String(payload.listingId)); send(client, { type: "market.purchased", ...result }); }
+      }
     } catch (error) {
       send(client, { type: "error", code: error instanceof Error ? error.message : "move_failed" });
     }
@@ -87,7 +100,18 @@ function readToken(request: IncomingMessage, url: URL): string {
 function isMoveMessage(value: unknown): value is { type: "move"; actionId: string; direction: Direction } {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
-  return message.type === "move" && typeof message.actionId === "string" && typeof message.direction === "string";
+  const payload = (message.payload && typeof message.payload === "object" ? message.payload : message) as Record<string, unknown>;
+  return message.type === "move" && typeof payload.actionId === "string" && typeof payload.direction === "string";
+}
+
+function isSupportedMessage(value: unknown): value is Record<string, unknown> & { type: string } {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Record<string, unknown>;
+  return typeof message.type === "string" && ["move", "farm.plant", "farm.care", "farm.harvest", "market.list", "market.buy"].includes(message.type);
+}
+
+function readPayload(value: Record<string, unknown>): Record<string, unknown> {
+  return value.payload && typeof value.payload === "object" ? value.payload as Record<string, unknown> : value;
 }
 
 function send(client: WebSocket, payload: unknown): void {

@@ -1,24 +1,44 @@
-import type { Direction } from "./domain.js";
-import type { MoveCommand, MoveResult, PlayerState, WorldSnapshot } from "./domain.js";
-import type { PlayerRepository } from "./repositories.js";
+import { randomUUID } from "node:crypto";
+import { getContentDefinition } from "@lafarmer/content";
+import type { Direction, FarmItem, FarmItemView, MarketListing, MoveCommand, MoveResult, PlayerState, WorldSnapshot } from "./domain.js";
+import type { FarmRepository, MarketRepository, PlayerRepository } from "./repositories.js";
 
 const WORLD_BOUNDS = { minX: 0, maxX: 100, minY: 0, maxY: 100 } as const;
+const OFFLINE_CAP_SECONDS = 24 * 60 * 60;
+const ONLINE_COINS_PER_TICK = 10;
+const ONLINE_TICK_MS = 60_000;
+const PLANT_COST = 10;
+
+export type GameRepositories = { players: PlayerRepository; farm: FarmRepository; market: MarketRepository };
 
 export class GameError extends Error {
-  constructor(public readonly code: "player_not_found" | "invalid_action" | "invalid_direction") {
-    super(code);
-  }
+  constructor(public readonly code: "player_not_found" | "invalid_action" | "invalid_direction" | "invalid_content" | "invalid_position" | "not_ready" | "insufficient_coins" | "farm_item_not_found" | "listing_not_found" | "invalid_quantity" | "invalid_price" | "cannot_buy_own_listing") { super(code); }
 }
 
 export class GameService {
   private readonly actionReceipts = new Map<string, MoveResult>();
-
-  constructor(private readonly players: PlayerRepository) {}
+  constructor(private readonly repositories: GameRepositories, private readonly now: () => number = () => Date.now()) {}
 
   async snapshot(playerId: string): Promise<WorldSnapshot> {
-    const player = await this.players.findById(playerId);
-    if (!player) throw new GameError("player_not_found");
-    return { bounds: WORLD_BOUNDS, player };
+    const player = await this.resume(playerId);
+    const [players, farmItems, listings] = await Promise.all([this.repositories.players.listAll(), this.repositories.farm.listAll(), this.repositories.market.listActive()]);
+    return { bounds: WORLD_BOUNDS, player, players: players.filter((candidate) => candidate.id !== playerId), farmItems: farmItems.map((item) => this.toView(item)), listings };
+  }
+
+  async resume(playerId: string): Promise<PlayerState> {
+    const player = await this.requirePlayer(playerId);
+    const elapsedSeconds = Math.min(OFFLINE_CAP_SECONDS, Math.max(0, Math.floor((this.now() - player.lastActiveAt) / 1_000)));
+    if (elapsedSeconds === 0) return player;
+    const updated = { ...player, coins: player.coins + Math.floor(elapsedSeconds / 60), lastActiveAt: this.now() };
+    await this.repositories.players.update(updated);
+    return updated;
+  }
+
+  async onlineTick(playerId: string): Promise<PlayerState> {
+    const player = await this.requirePlayer(playerId);
+    const updated = { ...player, coins: player.coins + ONLINE_COINS_PER_TICK, lastActiveAt: this.now() };
+    await this.repositories.players.update(updated);
+    return updated;
   }
 
   async move(playerId: string, command: MoveCommand): Promise<MoveResult> {
@@ -27,32 +47,105 @@ export class GameService {
     const receiptKey = `${playerId}:${command.actionId}`;
     const previous = this.actionReceipts.get(receiptKey);
     if (previous) return previous;
-
-    const player = await this.players.findById(playerId);
-    if (!player) throw new GameError("player_not_found");
+    const player = await this.requirePlayer(playerId);
     const position = { ...player.position };
     if (command.direction === "up") position.y -= 1;
     if (command.direction === "down") position.y += 1;
     if (command.direction === "left") position.x -= 1;
     if (command.direction === "right") position.x += 1;
-    const updated: PlayerState = {
-      ...player,
-      position: {
-        x: clamp(position.x, WORLD_BOUNDS.minX, WORLD_BOUNDS.maxX),
-        y: clamp(position.y, WORLD_BOUNDS.minY, WORLD_BOUNDS.maxY)
-      }
-    };
-    await this.players.update(updated);
+    const updated: PlayerState = { ...player, lastActiveAt: this.now(), position: { x: clamp(position.x, WORLD_BOUNDS.minX, WORLD_BOUNDS.maxX), y: clamp(position.y, WORLD_BOUNDS.minY, WORLD_BOUNDS.maxY) } };
+    await this.repositories.players.update(updated);
     const result: MoveResult = { actionId: command.actionId, accepted: true, player: updated };
     this.actionReceipts.set(receiptKey, result);
     return result;
   }
+
+  async plant(playerId: string, input: { contentId: string; x?: number; y?: number }): Promise<FarmItemView> {
+    const definition = getContentDefinition(input.contentId);
+    if (!definition || !["plant", "fruit", "dinosaur"].includes(definition.category)) throw new GameError("invalid_content");
+    const player = await this.requirePlayer(playerId);
+    const x = input.x ?? player.position.x;
+    const y = input.y ?? player.position.y;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 100 || y < 0 || y > 100 || Math.abs(x - player.position.x) > 8 || Math.abs(y - player.position.y) > 8 || x > 25) throw new GameError("invalid_position");
+    if (player.coins < PLANT_COST) throw new GameError("insufficient_coins");
+    const item: FarmItem = { id: randomUUID(), ownerId: playerId, contentId: definition.id, plantedAt: this.now(), lastCareAt: null, position: { x, y } };
+    await this.repositories.farm.insert(item);
+    await this.repositories.players.update({ ...player, coins: player.coins - PLANT_COST, lastActiveAt: this.now() });
+    return this.toView(item);
+  }
+
+  async care(playerId: string, itemId: string): Promise<FarmItemView> {
+    const item = await this.findOwnedItem(playerId, itemId);
+    const updated = { ...item, lastCareAt: this.now() };
+    await this.repositories.farm.update(updated);
+    return this.toView(updated);
+  }
+
+  async harvest(playerId: string, itemId: string): Promise<{ item: FarmItemView; coins: number; inventory: Record<string, number> }> {
+    const item = await this.findOwnedItem(playerId, itemId);
+    const view = this.toView(item);
+    if (!view.ready) throw new GameError("not_ready");
+    const player = await this.requirePlayer(playerId);
+    const inventory = { ...player.inventory, [item.contentId]: (player.inventory[item.contentId] ?? 0) + 1 };
+    await this.repositories.farm.delete(item.id);
+    await this.repositories.players.update({ ...player, inventory, lastActiveAt: this.now() });
+    return { item: view, coins: player.coins, inventory };
+  }
+
+  async createListing(playerId: string, input: { contentId: string; quantity: number; unitPrice: number }): Promise<MarketListing> {
+    if (!Number.isInteger(input.quantity) || input.quantity < 1) throw new GameError("invalid_quantity");
+    if (!Number.isInteger(input.unitPrice) || input.unitPrice < 1) throw new GameError("invalid_price");
+    const player = await this.requirePlayer(playerId);
+    if ((player.inventory[input.contentId] ?? 0) < input.quantity) throw new GameError("invalid_quantity");
+    const inventory = { ...player.inventory, [input.contentId]: (player.inventory[input.contentId] ?? 0) - input.quantity };
+    const listing: MarketListing = { id: randomUUID(), sellerId: playerId, sellerName: player.name, contentId: input.contentId, quantity: input.quantity, unitPrice: input.unitPrice, createdAt: this.now() };
+    await this.repositories.players.update({ ...player, inventory, lastActiveAt: this.now() });
+    await this.repositories.market.insert(listing);
+    return listing;
+  }
+
+  async buyListing(playerId: string, listingId: string): Promise<{ listing: MarketListing; coins: number; inventory: Record<string, number> }> {
+    const listing = await this.repositories.market.findById(listingId);
+    if (!listing) throw new GameError("listing_not_found");
+    if (listing.sellerId === playerId) throw new GameError("cannot_buy_own_listing");
+    const [buyer, seller] = await Promise.all([this.requirePlayer(playerId), this.requirePlayer(listing.sellerId)]);
+    const total = listing.quantity * listing.unitPrice;
+    if (buyer.coins < total) throw new GameError("insufficient_coins");
+    const buyerInventory = { ...buyer.inventory, [listing.contentId]: (buyer.inventory[listing.contentId] ?? 0) + listing.quantity };
+    await this.repositories.players.update({ ...buyer, coins: buyer.coins - total, inventory: buyerInventory, lastActiveAt: this.now() });
+    await this.repositories.players.update({ ...seller, coins: seller.coins + total, lastActiveAt: this.now() });
+    await this.repositories.market.delete(listing.id);
+    return { listing, coins: buyer.coins - total, inventory: buyerInventory };
+  }
+
+  private async findOwnedItem(playerId: string, itemId: string): Promise<FarmItem> {
+    const item = (await this.repositories.farm.listByOwnerId(playerId)).find((candidate) => candidate.id === itemId);
+    if (!item) throw new GameError("farm_item_not_found");
+    return item;
+  }
+
+  private async requirePlayer(playerId: string): Promise<PlayerState> {
+    const player = await this.repositories.players.findById(playerId);
+    if (!player) throw new GameError("player_not_found");
+    return player;
+  }
+
+  private toView(item: FarmItem): FarmItemView {
+    const definition = getContentDefinition(item.contentId);
+    if (!definition) throw new GameError("invalid_content");
+    const elapsed = Math.max(0, (this.now() - item.plantedAt) / 1_000);
+    let remaining = elapsed;
+    let stage = definition.stages[0];
+    for (const candidate of definition.stages.slice(1)) {
+      remaining -= candidate.durationSeconds;
+      if (remaining >= 0) stage = candidate;
+      else break;
+    }
+    return { ...item, stageId: stage.id, visualKey: stage.visualKey, ready: stage === definition.stages.at(-1) };
+  }
 }
 
-function isDirection(value: string): value is Direction {
-  return value === "up" || value === "down" || value === "left" || value === "right";
-}
+export const ONLINE_TICK_INTERVAL_MS = ONLINE_TICK_MS;
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
+function isDirection(value: string): value is Direction { return value === "up" || value === "down" || value === "left" || value === "right"; }
+function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }

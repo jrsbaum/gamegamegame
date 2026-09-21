@@ -1,5 +1,5 @@
-import type { Account, PlayerState, Session } from "./domain.js";
-import type { AccountRepository, PlayerRepository, RepositoryBundle, SessionRepository } from "./repositories.js";
+import type { Account, FarmItem, MarketListing, PlayerState, Session } from "./domain.js";
+import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository } from "./repositories.js";
 
 class InMemoryAccounts implements AccountRepository {
   private readonly byId = new Map<string, Account>();
@@ -56,6 +56,25 @@ class InMemoryPlayers implements PlayerRepository {
     this.byId.set(player.id, player);
     this.byAccountId.set(player.accountId, player);
   }
+
+  async listAll(): Promise<PlayerState[]> { return [...this.byId.values()]; }
+}
+
+class InMemoryFarm implements FarmRepository {
+  private readonly items = new Map<string, FarmItem>();
+  async listByOwnerId(ownerId: string): Promise<FarmItem[]> { return [...this.items.values()].filter((item) => item.ownerId === ownerId); }
+  async listAll(): Promise<FarmItem[]> { return [...this.items.values()]; }
+  async insert(item: FarmItem): Promise<void> { this.items.set(item.id, item); }
+  async update(item: FarmItem): Promise<void> { this.items.set(item.id, item); }
+  async delete(id: string): Promise<void> { this.items.delete(id); }
+}
+
+class InMemoryMarket implements MarketRepository {
+  private readonly listings = new Map<string, MarketListing>();
+  async listActive(): Promise<MarketListing[]> { return [...this.listings.values()]; }
+  async findById(id: string): Promise<MarketListing | undefined> { return this.listings.get(id); }
+  async insert(listing: MarketListing): Promise<void> { this.listings.set(listing.id, listing); }
+  async delete(id: string): Promise<void> { this.listings.delete(id); }
 }
 
 /** Dev-only adapter. Replace this bundle with PostgreSQL implementations without changing use cases. */
@@ -64,5 +83,7 @@ export function createInMemoryRepositories(): RepositoryBundle {
     accounts: new InMemoryAccounts(),
     sessions: new InMemorySessions(),
     players: new InMemoryPlayers()
+    , farm: new InMemoryFarm()
+    , market: new InMemoryMarket()
   };
 }

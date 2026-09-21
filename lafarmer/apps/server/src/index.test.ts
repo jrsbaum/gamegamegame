@@ -105,6 +105,31 @@ describe("LaFarmer server", () => {
     expect(lastAck.player.position.x).toBe(before + 1);
     socket.close();
   });
+
+  it("plants, persists a farm item and completes a player-to-player market trade", async () => {
+    const repositories = createInMemoryRepositories();
+    const app = createApp({ repositories });
+    apps.push(app);
+    const seller = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Seller", password: testPassword, credentialsSaved: true } });
+    const buyer = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Buyer", password: alternateTestPassword, credentialsSaved: true } });
+    expect(seller.statusCode).toBe(201);
+    expect(buyer.statusCode).toBe(201);
+    const sellerPlayer = await repositories.players.findByAccountId(seller.json().player.accountId);
+    if (!sellerPlayer) throw new Error("seller player missing");
+    await repositories.players.update({ ...sellerPlayer, inventory: { tomato: 2 } });
+
+    const planted = await app.inject({ method: "POST", url: "/api/farm/plant", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", x: 5, y: 5 } });
+    expect(planted.statusCode).toBe(201);
+    expect(planted.json().item.stageId).toBe("soil");
+
+    const listing = await app.inject({ method: "POST", url: "/api/market/listings", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", quantity: 1, unitPrice: 30 } });
+    expect(listing.statusCode).toBe(201);
+    const purchase = await app.inject({ method: "POST", url: `/api/market/${listing.json().listing.id}/buy`, headers: { authorization: `Bearer ${buyer.json().token}` }, payload: {} });
+    expect(purchase.statusCode).toBe(200);
+    expect(purchase.json().inventory.tomato).toBe(1);
+    expect(purchase.json().coins).toBe(970);
+    expect((await app.inject({ method: "GET", url: "/api/market" })).json().listings).toHaveLength(0);
+  });
 });
 
 async function waitFor(predicate: () => boolean): Promise<void> {

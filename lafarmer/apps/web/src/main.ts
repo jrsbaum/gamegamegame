@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
 import { hairs, outfits, type HairId, type OutfitId } from '@lafarmer/content-client';
 import { createGame } from './game';
-import { login, register, RealtimeClient, updateProfile, type PlayerProfile } from './network';
+import { buyListing, createListing, getMarket, login, register, RealtimeClient, updateProfile, type PlayerProfile } from './network';
 import './styles.css';
 
 type AuthMode = 'login' | 'create'; type Screen = 'auth' | 'confirm' | 'onboarding' | 'game';
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const realtime = new RealtimeClient();
 let game: Phaser.Game | undefined; let mode: AuthMode = 'login'; let screen: Screen = 'auth';
-let draft = { nick: '', password: '' }; let profile: PlayerProfile = { nick: '', name: '', outfit: 'forest', hair: 'short' }; let coins = 1000;
+let draft = { nick: '', password: '' }; let profile: PlayerProfile = { nick: '', name: '', outfit: 'forest', hair: 'short' }; let coins = 1000; let inventory: Record<string, number> = {};
 let authToken = '';
 
 function render(): void {
@@ -51,14 +51,39 @@ function renderOnboarding(shell: HTMLDivElement): void {
 }
 
 function renderGame(): void {
-  root.innerHTML = `<main class="game-shell" aria-label="Mundo do LaFarmer"><div id="game-root"></div><div class="game-hud"><div class="hud-top"><div class="hud-pill"><span class="coin">¢</span><span id="coins-value">${coins.toLocaleString('pt-BR')} moedas</span><span id="connection-status" class="live-dot ${realtime.status === 'connected' ? '' : 'offline'}" aria-label="${realtime.status === 'connected' ? 'online' : 'modo local'}"></span></div><div class="hud-pill hud-help">${escapeHtml(profile.name)}, use <kbd>WASD</kbd> ou as setas para andar</div></div><div class="hud-bottom">Online rende <strong>10×</strong> moedas. O vale continua aqui quando você voltar.</div></div></main>`;
+  root.innerHTML = `<main class="game-shell" aria-label="Mundo do LaFarmer"><div id="game-root"></div><div class="game-hud"><div class="hud-top"><div class="hud-pill"><span class="coin">¢</span><span id="coins-value">${coins.toLocaleString('pt-BR')} moedas</span><span id="connection-status" class="live-dot ${realtime.status === 'connected' ? '' : 'offline'}" aria-label="${realtime.status === 'connected' ? 'online' : 'modo local'}"></span></div><div class="hud-pill hud-help">${escapeHtml(profile.name)}, use <kbd>WASD</kbd> ou as setas para andar</div></div><div class="hud-actions"><button id="plant-tomato" type="button">Plantar tomate · 10¢</button><button id="open-market" type="button">Abrir mercadinho</button><p id="action-message" role="status"></p></div><div class="hud-bottom">Online rende <strong>10×</strong> moedas. <kbd>E</kbd> cuida/colhe perto do plantio ou abre o mercadinho.</div></div><section id="market-panel" class="market-panel" hidden aria-label="Mercadinho"><div class="market-card"><button id="close-market" class="market-close" type="button">Fechar</button><p class="eyebrow">mercadinho do vale</p><h2>Compre de outros jogadores</h2><p id="market-status" class="hint">Carregando anúncios…</p><div id="market-list" class="market-list"></div></div></section></main>`;
   const gameRoot = root.querySelector<HTMLDivElement>('#game-root')!;
   void realtime.connect(authToken).then((status) => {
     const indicator = root.querySelector<HTMLSpanElement>('#connection-status');
     if (indicator) { indicator.classList.toggle('offline', status !== 'connected'); indicator.setAttribute('aria-label', status === 'connected' ? 'online' : 'modo local'); }
   });
-  game = createGame(gameRoot, { profile, realtime, onCoins: (value) => { coins = value; const target = root.querySelector('#coins-value'); if (target) target.textContent = `${coins.toLocaleString('pt-BR')} moedas`; } });
+  const message = (text: string) => { const target = root.querySelector<HTMLParagraphElement>('#action-message'); if (target) target.textContent = text; };
+  root.querySelector('#plant-tomato')?.addEventListener('click', () => { realtime.action('farm.plant', { contentId: 'tomato' }); message('Tomate plantado. Cuide dele com E.'); });
+  root.querySelector('#open-market')?.addEventListener('click', () => openMarketPanel());
+  root.querySelector('#close-market')?.addEventListener('click', () => { const panel = root.querySelector<HTMLElement>('#market-panel'); if (panel) panel.hidden = true; });
+  game = createGame(gameRoot, { profile, realtime, onCoins: (value) => { coins = value; const target = root.querySelector('#coins-value'); if (target) target.textContent = `${coins.toLocaleString('pt-BR')} moedas`; }, onInventory: (value) => { inventory = value; }, onMarket: () => openMarketPanel() });
 }
+
+async function openMarketPanel(): Promise<void> {
+  const panel = root.querySelector<HTMLElement>('#market-panel'); const list = root.querySelector<HTMLDivElement>('#market-list'); const status = root.querySelector<HTMLParagraphElement>('#market-status');
+  if (!panel || !list || !status) return;
+  panel.hidden = false; status.textContent = 'Carregando anúncios…'; list.innerHTML = '';
+  try {
+    const result = await getMarket();
+    status.textContent = result.listings.length ? `${result.listings.length} anúncio(s) disponível(is)` : 'Ainda não há produtos à venda.';
+    const sellable = Object.entries(inventory).filter(([, quantity]) => quantity > 0);
+    if (sellable.length) {
+      const sellTitle = document.createElement('p'); sellTitle.className = 'market-section-title'; sellTitle.textContent = 'Seus produtos'; list.append(sellTitle);
+      sellable.forEach(([contentId, quantity]) => { const item = document.createElement('article'); item.className = 'market-item'; item.innerHTML = `<div><strong>${escapeHtml(contentId)}</strong><span>${quantity} unidade(s) no inventário</span></div><button type="button">Vender por 30¢</button>`; item.querySelector('button')?.addEventListener('click', async () => { try { await createListing(authToken, contentId, 1, 30); inventory[contentId] -= 1; messageFromRoot('Produto anunciado no mercadinho.'); await openMarketPanel(); } catch { messageFromRoot('Não foi possível criar o anúncio.'); } }); list.append(item); });
+    }
+    result.listings.forEach((listing) => {
+      const item = document.createElement('article'); item.className = 'market-item'; item.innerHTML = `<div><strong>${escapeHtml(listing.contentId)}</strong><span>${listing.quantity} unidade(s) · ${listing.unitPrice} moedas cada</span><small>por ${escapeHtml(listing.sellerName)}</small></div><button type="button">Comprar</button>`;
+      item.querySelector('button')?.addEventListener('click', async () => { try { const purchased = await buyListing(authToken, listing.id); coins = purchased.coins; inventory = purchased.inventory; const target = root.querySelector('#coins-value'); if (target) target.textContent = `${coins.toLocaleString('pt-BR')} moedas`; messageFromRoot(`Compra realizada: ${listing.quantity} ${listing.contentId}.`); await openMarketPanel(); } catch { messageFromRoot('Não foi possível comprar este anúncio.'); } }); list.append(item);
+    });
+  } catch { status.textContent = 'Mercadinho indisponível agora.'; }
+}
+
+function messageFromRoot(text: string): void { const target = root.querySelector<HTMLParagraphElement>('#action-message'); if (target) target.textContent = text; }
 
 function escapeHtml(value: string): string { return value.replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character)); }
 render();

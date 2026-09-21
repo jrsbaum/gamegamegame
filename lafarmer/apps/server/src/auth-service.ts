@@ -76,6 +76,8 @@ export class AuthService {
       name: nick,
       appearance: createDefaultAppearance(),
       coins: STARTING_COINS,
+      inventory: {},
+      lastActiveAt: this.now(),
       position: { x: 5, y: 5 }
     };
     await this.repositories.players.insert(player);

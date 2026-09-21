@@ -29,7 +29,7 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     environment: options.environment
   });
   const auth = new AuthService(persistence.repositories);
-  const game = new GameService(persistence.repositories.players);
+  const game = new GameService({ players: persistence.repositories.players, farm: persistence.repositories.farm, market: persistence.repositories.market });
   const app = Fastify({ logger: options.logger ?? false });
   app.addHook('onRequest', async (request, reply) => {
     const allowedOrigin = process.env.CORS_ORIGIN ?? request.headers.origin ?? '';
@@ -95,6 +95,48 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     }
   });
 
+  app.get("/api/farm", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    try { return reply.send({ items: (await game.snapshot(player.id)).farmItems.filter((item) => item.ownerId === player.id) }); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.post("/api/farm/plant", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ contentId: z.string(), x: z.number().optional(), y: z.number().optional() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_plant" });
+    try { return reply.code(201).send({ item: await game.plant(player.id, parsed.data) }); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.post("/api/farm/:itemId/care", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    try { return reply.send({ item: await game.care(player.id, (request.params as { itemId: string }).itemId) }); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.post("/api/farm/:itemId/harvest", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    try { return reply.send(await game.harvest(player.id, (request.params as { itemId: string }).itemId)); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.get("/api/market", async (_request, reply) => reply.send({ listings: (await persistence.repositories.market.listActive()) }));
+
+  app.post("/api/market/listings", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = z.object({ contentId: z.string(), quantity: z.number(), unitPrice: z.number() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_listing" });
+    try { return reply.code(201).send({ listing: await game.createListing(player.id, parsed.data) }); } catch (error) { return sendDomainError(reply, error); }
+  });
+
+  app.post("/api/market/:listingId/buy", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    try { return reply.send(await game.buyListing(player.id, (request.params as { listingId: string }).listingId)); } catch (error) { return sendDomainError(reply, error); }
+  });
+
   return app;
 }
 
@@ -109,7 +151,7 @@ function sendDomainError(reply: { code: (statusCode: number) => { send: (payload
     const status = error.code === "invalid_credentials" ? 401 : error.code === "nick_taken" ? 409 : 400;
     return reply.code(status).send({ error: error.code });
   }
-  if (error instanceof GameError) return reply.code(error.code === "player_not_found" ? 404 : 400).send({ error: error.code });
+  if (error instanceof GameError) return reply.code(["player_not_found", "farm_item_not_found", "listing_not_found"].includes(error.code) ? 404 : 400).send({ error: error.code });
   return reply.code(500).send({ error: "internal_error" });
 }
 

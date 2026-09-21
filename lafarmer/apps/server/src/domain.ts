@@ -20,10 +20,37 @@ export type PlayerState = {
   name: string;
   appearance: PlayerAppearance;
   coins: number;
+  inventory: Record<string, number>;
+  lastActiveAt: number;
   position: {
     x: number;
     y: number;
   };
+};
+
+export type FarmItem = {
+  id: string;
+  ownerId: string;
+  contentId: string;
+  plantedAt: number;
+  lastCareAt: number | null;
+  position: { x: number; y: number };
+};
+
+export type FarmItemView = FarmItem & {
+  stageId: string;
+  visualKey: string;
+  ready: boolean;
+};
+
+export type MarketListing = {
+  id: string;
+  sellerId: string;
+  sellerName: string;
+  contentId: string;
+  quantity: number;
+  unitPrice: number;
+  createdAt: number;
 };
 
 export type Direction = "up" | "down" | "left" | "right";
@@ -42,4 +69,7 @@ export type MoveResult = {
 export type WorldSnapshot = {
   bounds: { minX: number; maxX: number; minY: number; maxY: number };
   player: PlayerState;
+  players: PlayerState[];
+  farmItems: FarmItemView[];
+  listings: MarketListing[];
 };

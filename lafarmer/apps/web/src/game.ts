@@ -5,7 +5,9 @@ import type { PlayerProfile, RealtimeClient } from './network';
 const WORLD = { width: 2400, height: 1600 };
 const color = (hex: string): number => Number(`0x${hex.slice(1)}`);
 
-interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; }
+interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onMarket?: () => void; }
+type RemoteView = { body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text };
+type FarmView = { id: string; ready: boolean; body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text; x: number; y: number };
 
 export class WorldScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Graphics;
@@ -14,6 +16,8 @@ export class WorldScene extends Phaser.Scene {
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private worldData!: WorldData;
   private lastMoveSent = 0;
+  private readonly remotePlayers = new Map<string, RemoteView>();
+  private readonly farmItems = new Map<string, FarmView>();
 
   constructor() { super('world'); }
 
@@ -22,7 +26,7 @@ export class WorldScene extends Phaser.Scene {
     this.worldData = worldData;
     this.drawGround(); this.drawRiver(); this.drawPathsAndParcels(); this.drawLandmarks(); this.createPlayer(worldData.profile);
     this.cursors = this.input.keyboard!.createCursorKeys();
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D') as Record<string, Phaser.Input.Keyboard.Key>;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,E') as Record<string, Phaser.Input.Keyboard.Key>;
     this.cameras.main.setBounds(0, 0, WORLD.width, WORLD.height);
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setZoom(Math.min(window.innerWidth / 920, window.innerHeight / 620, 1));
@@ -31,6 +35,20 @@ export class WorldScene extends Phaser.Scene {
         const payload = message.payload as { coins?: number } | undefined;
         if (typeof payload?.coins === 'number') worldData.onCoins(payload.coins);
       }
+      if (message.type === 'farm.harvested') {
+        const payload = message as { inventory?: Record<string, number>; item?: { id?: string } };
+        if (payload.inventory) worldData.onInventory?.(payload.inventory);
+        if (payload.item?.id) this.removeFarmItem(payload.item.id);
+      }
+      if (message.type === 'farm.updated') { const item = message.item as Record<string, unknown> | undefined; if (item) this.renderFarmItem(item); }
+      if (message.type === 'hello') {
+        const snapshot = message.snapshot as { players?: Array<Record<string, unknown>>; farmItems?: Array<Record<string, unknown>> };
+        snapshot.players?.forEach((player) => this.renderRemotePlayer(player));
+        snapshot.farmItems?.forEach((item) => this.renderFarmItem(item));
+      }
+      if (message.type === 'player_joined') this.renderRemotePlayer(message.player as Record<string, unknown>);
+      if (message.type === 'player_moved') { const payload = message as { playerId?: string; player?: Record<string, unknown> }; if (payload.playerId && payload.player) this.renderRemotePlayer(payload.player, payload.playerId); }
+      if (message.type === 'player_left' && typeof message.playerId === 'string') this.removeRemotePlayer(message.playerId);
       if (message.type === 'hello' || message.type === 'move_ack') {
         const source = message.type === 'hello' ? message.snapshot as { player?: { position?: { x: number; y: number } } } : message as { player?: { position?: { x: number; y: number } } };
         const position = source.player?.position;
@@ -46,18 +64,60 @@ export class WorldScene extends Phaser.Scene {
     const up = this.cursors.up.isDown || this.keys.W?.isDown;
     const down = this.cursors.down.isDown || this.keys.S?.isDown;
     const dx = Number(right) - Number(left); const dy = Number(down) - Number(up);
-    if (dx === 0 && dy === 0) return;
+    if (dx === 0 && dy === 0) { if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact(); return; }
     const length = Math.hypot(dx, dy) || 1; const speed = 0.26 * delta;
     this.player.x = Phaser.Math.Clamp(this.player.x + (dx / length) * speed, 60, WORLD.width - 60);
     this.player.y = Phaser.Math.Clamp(this.player.y + (dy / length) * speed, 60, WORLD.height - 60);
     this.nameTag.setPosition(this.player.x, this.player.y - 62);
     if (time - this.lastMoveSent > 100) { this.lastMoveSent = time; this.worldData.realtime.move(dx > 0 ? 'right' : dx < 0 ? 'left' : dy > 0 ? 'down' : 'up'); }
+    if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact();
   }
 
   private applyServerPosition(x: number, y: number): void {
-    this.player.setPosition(620 + x * 18, 420 + y * 12);
+    const worldPosition = this.gridToWorld(x, y);
+    this.player.setPosition(worldPosition.x, worldPosition.y);
     this.nameTag.setPosition(this.player.x, this.player.y - 62);
   }
+
+  private gridToWorld(x: number, y: number): { x: number; y: number } { return { x: 620 + x * 18, y: 420 + y * 12 }; }
+
+  private interact(): void {
+    const nearest = [...this.farmItems.values()].sort((a, b) => this.distance(a.x, a.y) - this.distance(b.x, b.y))[0];
+    if (nearest && this.distance(nearest.x, nearest.y) < 130) { this.worldData.realtime.action(nearest.ready ? 'farm.harvest' : 'farm.care', { itemId: nearest.id }); return; }
+    if (Phaser.Math.Distance.Between(this.player.x, this.player.y, 1710, 680) < 190) this.worldData.onMarket?.();
+  }
+
+  private distance(x: number, y: number): number { return Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y); }
+
+  private renderFarmItem(item: Record<string, unknown>): void {
+    const id = String(item.id ?? ''); if (!id) return;
+    this.removeFarmItem(id);
+    const rawPosition = item.position as { x?: number; y?: number } | undefined;
+    const position = this.gridToWorld(Number(rawPosition?.x ?? 0), Number(rawPosition?.y ?? 0));
+    const body = this.add.graphics().setDepth(45).setPosition(position.x, position.y);
+    const ready = Boolean(item.ready);
+    body.fillStyle(color(ready ? palette.amber : palette.forest), 1).fillEllipse(0, 0, ready ? 25 : 15, ready ? 25 : 15);
+    body.fillStyle(color(palette.coral), 1).fillCircle(-6, -3, ready ? 5 : 3).fillCircle(6, 2, ready ? 5 : 3);
+    const tag = this.label(ready ? 'pronto' : 'crescendo', position.x, position.y - 28, 9, palette.forest);
+    this.farmItems.set(id, { id, ready, body, tag, x: position.x, y: position.y });
+  }
+
+  private removeFarmItem(id: string): void { const item = this.farmItems.get(id); if (!item) return; item.body.destroy(); item.tag.destroy(); this.farmItems.delete(id); }
+
+  private renderRemotePlayer(raw: Record<string, unknown>, forcedId?: string): void {
+    const id = forcedId ?? String(raw.id ?? '');
+    const position = raw.position as { x?: number; y?: number } | undefined;
+    if (!id || !position) return;
+    this.removeRemotePlayer(id);
+    const worldPosition = this.gridToWorld(Number(position.x ?? 0), Number(position.y ?? 0));
+    const body = this.add.graphics().setDepth(90).setPosition(worldPosition.x, worldPosition.y);
+    const appearance = raw.appearance as { clothing?: PlayerProfile['outfit']; hair?: PlayerProfile['hair'] } | undefined;
+    this.drawPlayer(body, { nick: String(raw.name ?? 'vizinho'), name: String(raw.name ?? 'vizinho'), outfit: appearance?.clothing ?? 'forest', hair: appearance?.hair ?? 'short' });
+    const tag = this.label(String(raw.name ?? 'vizinho'), body.x, body.y - 62, 10, palette.cream).setBackgroundColor(palette.forest);
+    this.remotePlayers.set(id, { body, tag });
+  }
+
+  private removeRemotePlayer(id: string): void { const view = this.remotePlayers.get(id); if (!view) return; view.body.destroy(); view.tag.destroy(); this.remotePlayers.delete(id); }
 
   private drawGround(): void {
     const graphics = this.add.graphics();
@@ -150,12 +210,12 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private createPlayer(profile: PlayerProfile): void {
-    this.player = this.add.graphics().setDepth(100).setPosition(710, 480); this.drawPlayer(profile);
+    this.player = this.add.graphics().setDepth(100).setPosition(710, 480); this.drawPlayer(this.player, profile);
     this.nameTag = this.label(profile.name, this.player.x, this.player.y - 62, 12, palette.cream).setBackgroundColor(palette.forest);
   }
 
-  private drawPlayer(profile: PlayerProfile): void {
-    const graphics = this.player; const outfit = outfits.find((item) => item.id === profile.outfit)?.color ?? 0x315d4a;
+  private drawPlayer(graphics: Phaser.GameObjects.Graphics, profile: PlayerProfile): void {
+    const outfit = outfits.find((item) => item.id === profile.outfit)?.color ?? 0x315d4a;
     graphics.fillStyle(color(palette.forest), 0.22).fillEllipse(0, 30, 54, 20);
     if (profile.hair === 'long') graphics.fillStyle(color('#5a382e'), 1).fillRoundedRect(-25, -31, 50, 72, 20);
     graphics.fillStyle(outfit, 1).fillRoundedRect(-19, -2, 38, 45, 12).fillStyle(color('#a96e4f'), 1).fillCircle(0, -18, 22).fillStyle(color('#5a382e'), 1).fillRoundedRect(-22, -35, 44, 18, 12);

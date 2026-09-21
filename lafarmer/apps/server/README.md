@@ -33,9 +33,11 @@ O adaptador in-memory continua disponível em `createInMemoryRepositories()` par
 - `GET /api/me` com `Authorization: Bearer <token>`
 - `PATCH /api/player/profile` com `{ name, clothing, hair }`
 - `GET /api/world/snapshot` com `Authorization: Bearer <token>`
+- `GET /api/farm`, `POST /api/farm/plant`, `POST /api/farm/:id/care` e `POST /api/farm/:id/harvest`
+- `GET /api/market`, `POST /api/market/listings` e `POST /api/market/:id/buy`
 
 ### WebSocket
 
-Conecte em `/ws?token=<token>`. O servidor envia `hello` e aceita `{ type: "move", actionId, direction }`. O `actionId` torna o movimento idempotente e a posição sempre é atualizada no servidor.
+Conecte em `/ws?token=<token>`. O servidor envia `hello` com jogadores, plantios e anúncios. Os comandos usam `{ type, payload }`: `move`, `farm.plant`, `farm.care`, `farm.harvest`, `market.list` e `market.buy`. A posição, moedas, inventário e ações sempre são validados no servidor.
 
-Em produção ainda faltam o adaptador PostgreSQL, rate limiting, rotação/revogação de sessão, observabilidade e regras completas de colisão/mapa.
+O adaptador PostgreSQL cria o schema de contas, sessões, jogadores, plantios e anúncios de forma idempotente. Rate limiting, rotação/revogação de sessão, observabilidade avançada e uma migração versionada continuam como endurecimento pós-MVP.

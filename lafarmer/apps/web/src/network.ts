@@ -10,6 +10,8 @@ export type ServerPlayer = {
   name: string;
   coins: number;
   appearance: { clothing: PlayerProfile['outfit']; hair: PlayerProfile['hair'] };
+  position?: { x: number; y: number };
+  inventory?: Record<string, number>;
 };
 
 export type AuthResult = { token: string; player: ServerPlayer; credentials: { nick: string } };
@@ -34,6 +36,11 @@ export function login(nick: string, password: string): Promise<AuthResult> {
 export function updateProfile(token: string, profile: Pick<PlayerProfile, 'name' | 'outfit' | 'hair'>): Promise<{ player: ServerPlayer }> {
   return api<{ player: ServerPlayer }>('/api/player/profile', { method: 'PATCH', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ name: profile.name, clothing: profile.outfit, hair: profile.hair }) });
 }
+
+export type MarketListing = { id: string; sellerId: string; sellerName: string; contentId: string; quantity: number; unitPrice: number; createdAt: number };
+export function getMarket(): Promise<{ listings: MarketListing[] }> { return api<{ listings: MarketListing[] }>('/api/market', { method: 'GET' }); }
+export function createListing(token: string, contentId: string, quantity: number, unitPrice: number): Promise<{ listing: MarketListing }> { return api<{ listing: MarketListing }>('/api/market/listings', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ contentId, quantity, unitPrice }) }); }
+export function buyListing(token: string, listingId: string): Promise<{ coins: number; inventory: Record<string, number> }> { return api<{ coins: number; inventory: Record<string, number> }>(`/api/market/${encodeURIComponent(listingId)}/buy`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: '{}' }); }
 
 export type RealtimeStatus = 'offline-demo' | 'connecting' | 'connected';
 type MessageHandler = (message: Record<string, unknown>) => void;
@@ -74,5 +81,6 @@ export class RealtimeClient {
     const actionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     return this.send('move', { actionId, direction });
   }
+  action(type: string, payload: Record<string, unknown> = {}): boolean { return this.send(type, payload); }
   close(): void { this.socket?.close(); this.socket = undefined; }
 }
