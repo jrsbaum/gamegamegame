@@ -1,4 +1,16 @@
-import type { Account, FarmItem, MarketListing, PlayerState, Session } from "./domain.js";
+import type { Account, FarmItem, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
+
+export type MarketListingResult = {
+  listing: MarketListing;
+  player: PlayerState;
+};
+
+export type MarketPurchaseResult = {
+  listing: MarketListing;
+  buyer: PlayerState;
+  seller: PlayerState;
+  replayed: boolean;
+};
 
 export interface AccountRepository {
   findById(id: string): Promise<Account | undefined>;
@@ -17,6 +29,8 @@ export interface PlayerRepository {
   findByAccountId(accountId: string): Promise<PlayerState | undefined>;
   insert(player: PlayerState): Promise<void>;
   update(player: PlayerState): Promise<void>;
+  creditCoins(playerId: string, amount: number, lastActiveAt: number): Promise<PlayerState | undefined>;
+  accrueOffline(playerId: string, now: number, capSeconds: number, coinsPerMinute: number): Promise<PlayerState | undefined>;
   listAll(): Promise<PlayerState[]>;
 }
 
@@ -33,6 +47,13 @@ export interface MarketRepository {
   findById(id: string): Promise<MarketListing | undefined>;
   insert(listing: MarketListing): Promise<void>;
   delete(id: string): Promise<void>;
+  createListing?(listing: MarketListing): Promise<MarketListingResult>;
+  purchaseListing?(listingId: string, buyerId: string, idempotencyKey: string): Promise<MarketPurchaseResult>;
+}
+
+export interface WalletRepository {
+  listByPlayerId(playerId: string): Promise<WalletEntry[]>;
+  insert(entry: WalletEntry): Promise<void>;
 }
 
 export type RepositoryBundle = {
@@ -41,4 +62,5 @@ export type RepositoryBundle = {
   players: PlayerRepository;
   farm: FarmRepository;
   market: MarketRepository;
+  wallet: WalletRepository;
 };

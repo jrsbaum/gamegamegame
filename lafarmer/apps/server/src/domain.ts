@@ -1,4 +1,4 @@
-import type { PlayerAppearance } from "@lafarmer/content";
+import type { BehaviorState, CareState, PlayerAppearance, Quality } from "@lafarmer/content";
 
 export type Account = {
   id: string;
@@ -40,6 +40,8 @@ export type PlayerState = {
   appearance: PlayerAppearance;
   coins: number;
   inventory: Record<string, number>;
+  inventoryQualities: Record<string, Partial<Record<Quality, number>>>;
+  inventoryCapacity: number;
   lastActiveAt: number;
   position: {
     x: number;
@@ -53,6 +55,13 @@ export type FarmItem = {
   contentId: string;
   plantedAt: number;
   lastCareAt: number | null;
+  lastProcessedAt: number;
+  pendingQuantity: number;
+  nextProductionAt: number | null;
+  quality: Quality;
+  careState: CareState;
+  behaviorState: BehaviorState;
+  appearanceVariantId: string;
   position: { x: number; y: number };
 };
 
@@ -60,6 +69,11 @@ export type FarmItemView = FarmItem & {
   stageId: string;
   visualKey: string;
   ready: boolean;
+  quality: Quality;
+  careState: CareState;
+  behaviorState: BehaviorState;
+  appearanceVariantId: string;
+  pendingQuantity: number;
 };
 
 export type MarketListing = {
@@ -69,6 +83,17 @@ export type MarketListing = {
   contentId: string;
   quantity: number;
   unitPrice: number;
+  quality: Quality;
+  createdAt: number;
+};
+
+export type WalletEntry = {
+  id: string;
+  playerId: string;
+  delta: number;
+  balance: number;
+  reason: "starting_balance" | "offline_reward" | "online_reward" | "plant" | "adopt" | "market_purchase" | "market_sale";
+  referenceId: string | null;
   createdAt: number;
 };
 
@@ -91,4 +116,5 @@ export type WorldSnapshot = {
   players: PlayerState[];
   farmItems: FarmItemView[];
   listings: MarketListing[];
+  offlineProgress: { coins: number; completedCycles: number; blockedByCapacity: number };
 };

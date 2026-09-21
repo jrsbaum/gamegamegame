@@ -52,9 +52,9 @@ export function updateProfile(token: string, profile: Pick<PlayerProfile, 'name'
 export type MarketListing = { id: string; sellerId: string; sellerName: string; contentId: string; quantity: number; unitPrice: number; createdAt: number };
 export function getMarket(): Promise<{ listings: MarketListing[] }> { return api<{ listings: MarketListing[] }>('/api/market', { method: 'GET' }); }
 export function createListing(token: string, contentId: string, quantity: number, unitPrice: number): Promise<{ listing: MarketListing }> { return api<{ listing: MarketListing }>('/api/market/listings', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ contentId, quantity, unitPrice }) }); }
-export function buyListing(token: string, listingId: string): Promise<{ coins: number; inventory: Record<string, number> }> { return api<{ coins: number; inventory: Record<string, number> }>(`/api/market/${encodeURIComponent(listingId)}/buy`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: '{}' }); }
+export function buyListing(token: string, listingId: string, idempotencyKey = crypto.randomUUID()): Promise<{ coins: number; inventory: Record<string, number>; replayed: boolean }> { return api<{ coins: number; inventory: Record<string, number>; replayed: boolean }>(`/api/market/${encodeURIComponent(listingId)}/buy`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'idempotency-key': idempotencyKey }, body: '{}' }); }
 
-export type RealtimeStatus = 'offline-demo' | 'connecting' | 'connected';
+export type RealtimeStatus = 'offline-demo' | 'connecting' | 'reconnecting' | 'connected';
 type MessageHandler = (message: Record<string, unknown>) => void;
 
 export class RealtimeClient {
@@ -63,34 +63,71 @@ export class RealtimeClient {
   private socket: WebSocket | undefined;
   private handlers = new Set<MessageHandler>();
   private readonly moveSentAt = new Map<string, number>();
+  private token = '';
+  private retryTimer: number | undefined;
+  private retryAttempt = 0;
+  private closedByUser = false;
+  private initialConnectionResolve: ((status: RealtimeStatus) => void) | undefined;
   latencyMs = 0;
 
   constructor(url = import.meta.env.VITE_WS_URL || (import.meta.env.DEV ? 'ws://127.0.0.1:3337/ws' : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`)) { this.url = url; }
 
   async connect(token: string): Promise<RealtimeStatus> {
+    this.close();
     if (!this.url || !token) { this.status = 'offline-demo'; return this.status; }
+    this.closedByUser = false;
+    this.token = token;
+    this.retryAttempt = 0;
     this.status = 'connecting';
     return new Promise((resolve) => {
-      let settled = false;
-      const finish = (status: RealtimeStatus) => { if (settled) return; settled = true; this.status = status; resolve(status); };
-      try {
-        this.socket = new WebSocket(`${this.url}?token=${encodeURIComponent(token)}`);
-        this.socket.addEventListener('open', () => finish('connected'));
-        this.socket.addEventListener('error', () => finish('offline-demo'));
-        this.socket.addEventListener('close', () => { this.status = 'offline-demo'; });
-        this.socket.addEventListener('message', (event) => {
-          try {
-            const message = JSON.parse(String(event.data)) as Record<string, unknown>;
-            if (message.type === 'move_ack' && typeof message.actionId === 'string') {
-              const sentAt = this.moveSentAt.get(message.actionId);
-              if (sentAt) { this.latencyMs = Date.now() - sentAt; this.moveSentAt.delete(message.actionId); }
-            }
-            this.handlers.forEach((handler) => handler(message));
-          } catch { /* authoritative server owns the protocol */ }
-        });
-        window.setTimeout(() => finish('offline-demo'), 1600);
-      } catch { finish('offline-demo'); }
+      this.initialConnectionResolve = resolve;
+      this.openSocket();
+      window.setTimeout(() => {
+        if (!this.initialConnectionResolve) return;
+        this.initialConnectionResolve = undefined;
+        this.status = 'offline-demo';
+        resolve('offline-demo');
+        this.scheduleReconnect();
+      }, 1600);
     });
+  }
+
+  private openSocket(): void {
+    if (this.closedByUser || !this.url || !this.token) return;
+    try {
+      const socket = new WebSocket(`${this.url}?token=${encodeURIComponent(this.token)}`);
+      this.socket = socket;
+      socket.addEventListener('open', () => {
+        if (this.retryTimer !== undefined) { window.clearTimeout(this.retryTimer); this.retryTimer = undefined; }
+        this.retryAttempt = 0;
+        this.status = 'connected';
+        const resolve = this.initialConnectionResolve;
+        this.initialConnectionResolve = undefined;
+        resolve?.('connected');
+      });
+      socket.addEventListener('close', () => {
+        if (this.socket !== socket) return;
+        this.socket = undefined;
+        if (!this.closedByUser) this.scheduleReconnect();
+      });
+      socket.addEventListener('message', (event) => {
+        try {
+          const message = JSON.parse(String(event.data)) as Record<string, unknown>;
+          if (message.type === 'move_ack' && typeof message.actionId === 'string') {
+            const sentAt = this.moveSentAt.get(message.actionId);
+            if (sentAt) { this.latencyMs = Date.now() - sentAt; this.moveSentAt.delete(message.actionId); }
+          }
+          this.handlers.forEach((handler) => handler(message));
+        } catch { /* authoritative server owns the protocol */ }
+      });
+    } catch { this.scheduleReconnect(); }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closedByUser || this.retryTimer !== undefined) return;
+    this.status = 'reconnecting';
+    const delay = Math.min(10_000, 500 * 2 ** Math.min(this.retryAttempt++, 5));
+    this.retryTimer = window.setTimeout(() => { this.retryTimer = undefined; this.openSocket(); }, delay);
   }
 
   onMessage(handler: MessageHandler): () => void { this.handlers.add(handler); return () => this.handlers.delete(handler); }
@@ -105,5 +142,12 @@ export class RealtimeClient {
     return actionId;
   }
   action(type: string, payload: Record<string, unknown> = {}): boolean { return this.send(type, payload); }
-  close(): void { this.socket?.close(); this.socket = undefined; }
+  close(): void {
+    this.closedByUser = true;
+    if (this.retryTimer !== undefined) { window.clearTimeout(this.retryTimer); this.retryTimer = undefined; }
+    this.initialConnectionResolve = undefined;
+    this.socket?.close();
+    this.socket = undefined;
+    this.status = 'offline-demo';
+  }
 }

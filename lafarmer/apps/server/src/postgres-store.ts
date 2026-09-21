@@ -1,6 +1,6 @@
 import { Pool, type QueryResultRow } from "pg";
-import type { Account, FarmItem, LandPlot, MarketListing, PlayerState, Session, Specialization } from "./domain.js";
-import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository } from "./repositories.js";
+import type { Account, FarmItem, LandPlot, MarketListing, PlayerState, Session, Specialization, WalletEntry } from "./domain.js";
+import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, WalletRepository } from "./repositories.js";
 
 export const POSTGRES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS accounts (
@@ -28,12 +28,16 @@ CREATE TABLE IF NOT EXISTS players (
   hair TEXT NOT NULL CHECK (hair IN ('short', 'long')),
   coins INTEGER NOT NULL DEFAULT 0 CHECK (coins >= 0),
   inventory JSONB NOT NULL DEFAULT '{}'::jsonb,
+  inventory_qualities JSONB NOT NULL DEFAULT '{}'::jsonb,
+  inventory_capacity INTEGER NOT NULL DEFAULT 50 CHECK (inventory_capacity > 0),
   last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   position_x DOUBLE PRECISION NOT NULL DEFAULT 5,
   position_y DOUBLE PRECISION NOT NULL DEFAULT 5
 );
 
 ALTER TABLE players ADD COLUMN IF NOT EXISTS inventory JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS inventory_qualities JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS inventory_capacity INTEGER NOT NULL DEFAULT 50;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 ALTER TABLE players ADD COLUMN IF NOT EXISTS farm_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE players ADD COLUMN IF NOT EXISTS specialization TEXT;
@@ -45,6 +49,13 @@ CREATE TABLE IF NOT EXISTS farm_items (
   content_id TEXT NOT NULL,
   planted_at TIMESTAMPTZ NOT NULL,
   last_care_at TIMESTAMPTZ,
+  last_processed_at TIMESTAMPTZ NOT NULL,
+  pending_quantity INTEGER NOT NULL DEFAULT 0 CHECK (pending_quantity >= 0),
+  next_production_at TIMESTAMPTZ,
+  quality TEXT NOT NULL DEFAULT 'common' CHECK (quality IN ('common', 'good', 'perfect')),
+  care_state TEXT NOT NULL DEFAULT 'awaiting-care',
+  behavior_state TEXT NOT NULL DEFAULT 'idle',
+  appearance_variant_id TEXT NOT NULL DEFAULT 'default',
   position_x DOUBLE PRECISION NOT NULL,
   position_y DOUBLE PRECISION NOT NULL
 );
@@ -56,7 +67,36 @@ CREATE TABLE IF NOT EXISTS market_listings (
   content_id TEXT NOT NULL,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_price INTEGER NOT NULL CHECK (unit_price > 0),
+  quality TEXT NOT NULL DEFAULT 'common' CHECK (quality IN ('common', 'good', 'perfect')),
   created_at TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS last_processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS pending_quantity INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS next_production_at TIMESTAMPTZ;
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS quality TEXT NOT NULL DEFAULT 'common';
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS care_state TEXT NOT NULL DEFAULT 'awaiting-care';
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS behavior_state TEXT NOT NULL DEFAULT 'idle';
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS appearance_variant_id TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE market_listings ADD COLUMN IF NOT EXISTS quality TEXT NOT NULL DEFAULT 'common';
+
+CREATE TABLE IF NOT EXISTS wallet_ledger (
+  id UUID PRIMARY KEY,
+  player_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  delta INTEGER NOT NULL,
+  balance INTEGER NOT NULL CHECK (balance >= 0),
+  reason TEXT NOT NULL,
+  reference_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS market_purchase_receipts (
+  buyer_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  idempotency_key TEXT NOT NULL,
+  listing_id UUID NOT NULL,
+  response JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (buyer_id, idempotency_key)
 );
 
 CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
@@ -133,8 +173,8 @@ class PostgresPlayers implements PlayerRepository {
 
   async insert(player: PlayerState): Promise<void> {
     await this.pool.query(
-      `INSERT INTO players (id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, last_active_at, position_x, position_y)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11 / 1000.0), $12, $13)`,
+      `INSERT INTO players (id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13 / 1000.0), $14, $15)`,
       [
         player.id,
         player.accountId,
@@ -146,6 +186,8 @@ class PostgresPlayers implements PlayerRepository {
         player.appearance.hair,
         player.coins,
         JSON.stringify(player.inventory),
+        JSON.stringify(player.inventoryQualities),
+        player.inventoryCapacity,
         player.lastActiveAt,
         player.position.x,
         player.position.y
@@ -156,7 +198,7 @@ class PostgresPlayers implements PlayerRepository {
   async update(player: PlayerState): Promise<void> {
     await this.pool.query(
       `UPDATE players
-       SET name = $2, farm_name = $3, specialization = $4, plot = $5, clothing = $6, hair = $7, coins = $8, inventory = $9, last_active_at = to_timestamp($10 / 1000.0), position_x = $11, position_y = $12
+       SET name = $2, farm_name = $3, specialization = $4, plot = $5, clothing = $6, hair = $7, coins = $8, inventory = $9, inventory_qualities = $10, inventory_capacity = $11, last_active_at = to_timestamp($12 / 1000.0), position_x = $13, position_y = $14
        WHERE id = $1`,
       [
         player.id,
@@ -168,11 +210,37 @@ class PostgresPlayers implements PlayerRepository {
         player.appearance.hair,
         player.coins,
         JSON.stringify(player.inventory),
+        JSON.stringify(player.inventoryQualities),
+        player.inventoryCapacity,
         player.lastActiveAt,
         player.position.x,
         player.position.y
       ]
     );
+  }
+
+  async creditCoins(playerId: string, amount: number, lastActiveAt: number): Promise<PlayerState | undefined> {
+    const result = await this.pool.query<PlayerRow>(`UPDATE players SET coins = coins + $2, last_active_at = to_timestamp($3 / 1000.0) WHERE id = $1 RETURNING ${playerColumns}`, [playerId, amount, lastActiveAt]);
+    return result.rows[0] ? mapPlayer(result.rows[0]) : undefined;
+  }
+
+  async accrueOffline(playerId: string, now: number, capSeconds: number, coinsPerMinute: number): Promise<PlayerState | undefined> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<PlayerRow>(playerSelect + " WHERE id = $1 FOR UPDATE", [playerId]);
+      const player = result.rows[0] ? mapPlayer(result.rows[0]) : undefined;
+      if (!player) { await client.query("COMMIT"); return undefined; }
+      const elapsedSeconds = Math.min(capSeconds, Math.max(0, Math.floor((now - player.lastActiveAt) / 1_000)));
+      if (elapsedSeconds === 0) { await client.query("COMMIT"); return player; }
+      const coins = Math.floor(elapsedSeconds / 60) * coinsPerMinute;
+      const updated = await client.query<PlayerRow>(`UPDATE players SET coins = coins + $2, last_active_at = to_timestamp($3 / 1000.0) WHERE id = $1 RETURNING ${playerColumns}`, [playerId, coins, now]);
+      await client.query("COMMIT");
+      return updated.rows[0] ? mapPlayer(updated.rows[0]) : undefined;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally { client.release(); }
   }
 
   async listAll(): Promise<PlayerState[]> {
@@ -185,8 +253,8 @@ class PostgresFarm implements FarmRepository {
   constructor(private readonly pool: Pool) {}
   async listByOwnerId(ownerId: string): Promise<FarmItem[]> { const result = await this.pool.query<FarmRow>(farmSelect + " WHERE owner_id = $1", [ownerId]); return result.rows.map(mapFarm); }
   async listAll(): Promise<FarmItem[]> { const result = await this.pool.query<FarmRow>(farmSelect); return result.rows.map(mapFarm); }
-  async insert(item: FarmItem): Promise<void> { await this.pool.query("INSERT INTO farm_items (id, owner_id, content_id, planted_at, last_care_at, position_x, position_y) VALUES ($1, $2, $3, to_timestamp($4 / 1000.0), CASE WHEN $5::bigint IS NULL THEN NULL ELSE to_timestamp($5 / 1000.0) END, $6, $7)", [item.id, item.ownerId, item.contentId, item.plantedAt, item.lastCareAt, item.position.x, item.position.y]); }
-  async update(item: FarmItem): Promise<void> { await this.pool.query("UPDATE farm_items SET last_care_at = CASE WHEN $2::bigint IS NULL THEN NULL ELSE to_timestamp($2 / 1000.0) END, position_x = $3, position_y = $4 WHERE id = $1", [item.id, item.lastCareAt, item.position.x, item.position.y]); }
+  async insert(item: FarmItem): Promise<void> { await this.pool.query("INSERT INTO farm_items (id, owner_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y) VALUES ($1, $2, $3, to_timestamp($4 / 1000.0), CASE WHEN $5::bigint IS NULL THEN NULL ELSE to_timestamp($5 / 1000.0) END, to_timestamp($6 / 1000.0), $7, CASE WHEN $8::bigint IS NULL THEN NULL ELSE to_timestamp($8 / 1000.0) END, $9, $10, $11, $12, $13, $14)", [item.id, item.ownerId, item.contentId, item.plantedAt, item.lastCareAt, item.lastProcessedAt, item.pendingQuantity, item.nextProductionAt, item.quality, item.careState, item.behaviorState, item.appearanceVariantId, item.position.x, item.position.y]); }
+  async update(item: FarmItem): Promise<void> { await this.pool.query("UPDATE farm_items SET last_care_at = CASE WHEN $2::bigint IS NULL THEN NULL ELSE to_timestamp($2 / 1000.0) END, last_processed_at = to_timestamp($3 / 1000.0), pending_quantity = $4, next_production_at = CASE WHEN $5::bigint IS NULL THEN NULL ELSE to_timestamp($5 / 1000.0) END, quality = $6, care_state = $7, behavior_state = $8, appearance_variant_id = $9, position_x = $10, position_y = $11 WHERE id = $1", [item.id, item.lastCareAt, item.lastProcessedAt, item.pendingQuantity, item.nextProductionAt, item.quality, item.careState, item.behaviorState, item.appearanceVariantId, item.position.x, item.position.y]); }
   async delete(id: string): Promise<void> { await this.pool.query("DELETE FROM farm_items WHERE id = $1", [id]); }
 }
 
@@ -194,8 +262,14 @@ class PostgresMarket implements MarketRepository {
   constructor(private readonly pool: Pool) {}
   async listActive(): Promise<MarketListing[]> { const result = await this.pool.query<MarketRow>(marketSelect); return result.rows.map(mapMarket); }
   async findById(id: string): Promise<MarketListing | undefined> { const result = await this.pool.query<MarketRow>(marketSelect + " WHERE id = $1", [id]); return result.rows[0] ? mapMarket(result.rows[0]) : undefined; }
-  async insert(listing: MarketListing): Promise<void> { await this.pool.query("INSERT INTO market_listings (id, seller_id, seller_name, content_id, quantity, unit_price, created_at) VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0))", [listing.id, listing.sellerId, listing.sellerName, listing.contentId, listing.quantity, listing.unitPrice, listing.createdAt]); }
+  async insert(listing: MarketListing): Promise<void> { await this.pool.query("INSERT INTO market_listings (id, seller_id, seller_name, content_id, quantity, unit_price, quality, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0))", [listing.id, listing.sellerId, listing.sellerName, listing.contentId, listing.quantity, listing.unitPrice, listing.quality, listing.createdAt]); }
   async delete(id: string): Promise<void> { await this.pool.query("DELETE FROM market_listings WHERE id = $1", [id]); }
+}
+
+class PostgresWallet implements WalletRepository {
+  constructor(private readonly pool: Pool) {}
+  async listByPlayerId(playerId: string): Promise<WalletEntry[]> { const result = await this.pool.query<WalletRow>("SELECT id, player_id, delta, balance, reason, reference_id, created_at FROM wallet_ledger WHERE player_id = $1 ORDER BY created_at ASC", [playerId]); return result.rows.map(mapWallet); }
+  async insert(entry: WalletEntry): Promise<void> { await this.pool.query("INSERT INTO wallet_ledger (id, player_id, delta, balance, reason, reference_id, created_at) VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0))", [entry.id, entry.playerId, entry.delta, entry.balance, entry.reason, entry.referenceId, entry.createdAt]); }
 }
 
 export function createPostgresRepositories(pool: Pool): RepositoryBundle {
@@ -204,7 +278,8 @@ export function createPostgresRepositories(pool: Pool): RepositoryBundle {
     sessions: new PostgresSessions(pool),
     players: new PostgresPlayers(pool),
     farm: new PostgresFarm(pool),
-    market: new PostgresMarket(pool)
+    market: new PostgresMarket(pool),
+    wallet: new PostgresWallet(pool)
   };
 }
 
@@ -233,17 +308,21 @@ type PlayerRow = QueryResultRow & {
   hair: "short" | "long";
   coins: number;
   inventory: Record<string, number>;
+  inventory_qualities: Record<string, Partial<Record<"common" | "good" | "perfect", number>>>;
+  inventory_capacity: number;
   last_active_at: Date | string;
   position_x: number;
   position_y: number;
 };
 
-const playerSelect = `SELECT id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, last_active_at, position_x, position_y FROM players`;
-const farmSelect = `SELECT id, owner_id, content_id, planted_at, last_care_at, position_x, position_y FROM farm_items`;
-const marketSelect = `SELECT id, seller_id, seller_name, content_id, quantity, unit_price, created_at FROM market_listings`;
+const playerSelect = `SELECT id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y FROM players`;
+const playerColumns = `id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y`;
+const farmSelect = `SELECT id, owner_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y FROM farm_items`;
+const marketSelect = `SELECT id, seller_id, seller_name, content_id, quantity, unit_price, quality, created_at FROM market_listings`;
 
-type FarmRow = QueryResultRow & { id: string; owner_id: string; content_id: string; planted_at: Date | string; last_care_at: Date | string | null; position_x: number; position_y: number };
-type MarketRow = QueryResultRow & { id: string; seller_id: string; seller_name: string; content_id: string; quantity: number; unit_price: number; created_at: Date | string };
+type FarmRow = QueryResultRow & { id: string; owner_id: string; content_id: string; planted_at: Date | string; last_care_at: Date | string | null; last_processed_at: Date | string; pending_quantity: number; next_production_at: Date | string | null; quality: "common" | "good" | "perfect"; care_state: "awaiting-care" | "attended"; behavior_state: "idle" | "wander" | "hungry" | "seekCare" | "eating" | "happy" | "produce"; appearance_variant_id: string; position_x: number; position_y: number };
+type MarketRow = QueryResultRow & { id: string; seller_id: string; seller_name: string; content_id: string; quantity: number; unit_price: number; quality: "common" | "good" | "perfect"; created_at: Date | string };
+type WalletRow = QueryResultRow & { id: string; player_id: string; delta: number; balance: number; reason: WalletEntry["reason"]; reference_id: string | null; created_at: Date | string };
 
 function mapAccount(row: AccountRow): Account {
   return {
@@ -274,13 +353,16 @@ function mapPlayer(row: PlayerRow): PlayerState {
     appearance: { clothing: row.clothing, hair: row.hair },
     coins: row.coins,
     inventory: row.inventory ?? {},
+    inventoryQualities: row.inventory_qualities ?? {},
+    inventoryCapacity: row.inventory_capacity ?? 50,
     lastActiveAt: new Date(row.last_active_at).getTime(),
     position: { x: row.position_x, y: row.position_y }
   };
 }
 
-function mapFarm(row: FarmRow): FarmItem { return { id: row.id, ownerId: row.owner_id, contentId: row.content_id, plantedAt: new Date(row.planted_at).getTime(), lastCareAt: row.last_care_at ? new Date(row.last_care_at).getTime() : null, position: { x: row.position_x, y: row.position_y } }; }
-function mapMarket(row: MarketRow): MarketListing { return { id: row.id, sellerId: row.seller_id, sellerName: row.seller_name, contentId: row.content_id, quantity: row.quantity, unitPrice: row.unit_price, createdAt: new Date(row.created_at).getTime() }; }
+function mapFarm(row: FarmRow): FarmItem { return { id: row.id, ownerId: row.owner_id, contentId: row.content_id, plantedAt: new Date(row.planted_at).getTime(), lastCareAt: row.last_care_at ? new Date(row.last_care_at).getTime() : null, lastProcessedAt: new Date(row.last_processed_at).getTime(), pendingQuantity: row.pending_quantity, nextProductionAt: row.next_production_at ? new Date(row.next_production_at).getTime() : null, quality: row.quality, careState: row.care_state, behaviorState: row.behavior_state, appearanceVariantId: row.appearance_variant_id, position: { x: row.position_x, y: row.position_y } }; }
+function mapMarket(row: MarketRow): MarketListing { return { id: row.id, sellerId: row.seller_id, sellerName: row.seller_name, contentId: row.content_id, quantity: row.quantity, unitPrice: row.unit_price, quality: row.quality, createdAt: new Date(row.created_at).getTime() }; }
+function mapWallet(row: WalletRow): WalletEntry { return { id: row.id, playerId: row.player_id, delta: row.delta, balance: row.balance, reason: row.reason, referenceId: row.reference_id, createdAt: new Date(row.created_at).getTime() }; }
 
 function asDate(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();

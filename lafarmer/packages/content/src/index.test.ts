@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTENT_CATALOG, getContentDefinition, STARTING_COINS } from "./index.js";
+import { CONTENT_CATALOG, getContentDefinition, STARTING_COINS, validateContentCatalog } from "./index.js";
 
 describe("content catalog", () => {
   it("contains the MVP content families", () => {
@@ -19,5 +19,11 @@ describe("content catalog", () => {
       "dinosaur-adult"
     ]);
     expect(STARTING_COINS).toBe(1_000);
+  });
+
+  it("validates stages, inputs and outputs before content can be registered", () => {
+    expect(() => validateContentCatalog(CONTENT_CATALOG)).not.toThrow();
+    const invalid = [{ ...CONTENT_CATALOG[0], id: "broken", stages: [{ id: "soil", visualKey: "soil", durationSeconds: 1 }] }];
+    expect(() => validateContentCatalog(invalid)).toThrow("invalid_initial_stage:broken");
   });
 });
