@@ -36,7 +36,9 @@ function renderAuth(shell: HTMLDivElement): void {
     draft = { nick, password }; error.textContent = 'Conectando ao vale…';
     try {
       const result = mode === 'create' ? await register(nick, password) : await login(nick, password);
-      authToken = result.token; playerId = result.player.id; currentRegionId = result.player.currentRegionId ?? result.player.homeRegionId ?? result.player.plot?.id ?? ''; profile.nick = nick; profile.name = result.player.name; profile.farmName = result.player.farmName || ''; profile.specialization = result.player.specialization; profile.plotId = result.player.plot?.id || ''; profile.outfit = result.player.appearance.clothing; profile.hair = result.player.appearance.hair; selectedLandId = profile.plotId; selectedSpecialization = profile.specialization || 'vegetables'; coins = result.player.coins; screen = 'confirm'; render();
+      authToken = result.token; playerId = result.player.id; currentRegionId = result.player.currentRegionId ?? result.player.homeRegionId ?? result.player.plot?.id ?? ''; profile.nick = nick; profile.name = result.player.name; profile.farmName = result.player.farmName || ''; profile.specialization = result.player.specialization; profile.plotId = result.player.plot?.id || ''; profile.outfit = result.player.appearance.clothing; profile.hair = result.player.appearance.hair; selectedLandId = profile.plotId; selectedSpecialization = profile.specialization || 'vegetables'; coins = result.player.coins;
+      const hasCompletedOnboarding = Boolean(result.player.homeRegionId ?? result.player.plot?.id) && Boolean(result.player.specialization) && Boolean(result.player.name && result.player.farmName);
+      screen = mode === 'create' ? 'confirm' : hasCompletedOnboarding ? 'game' : 'onboarding'; render();
     } catch (requestError) {
       error.textContent = requestError instanceof Error && requestError.message === 'nick_taken' ? 'Esse nick já está ocupado.' : requestError instanceof Error && requestError.message === 'invalid_nick' ? 'Use de 3 a 20 caracteres, sem espaços. Você pode usar hífen ou underline.' : 'Não foi possível entrar. Confira os dados e o servidor.';
     }
