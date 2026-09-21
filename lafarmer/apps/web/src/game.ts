@@ -9,7 +9,7 @@ const PLAYER_RADIUS = 13;
 const RECONCILE_DISTANCE = 44;
 const color = (hex: string): number => Number(`0x${hex.slice(1)}`);
 
-interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onSnapshot?: (snapshot: Record<string, unknown>) => void; onMarket?: () => void; }
+interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onProduction?: (ready: number, total: number) => void; onSnapshot?: (snapshot: Record<string, unknown>) => void; onMarket?: () => void; }
 type RemoteView = { body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text };
 type FarmView = { id: string; contentId: string; ready: boolean; body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text; x: number; y: number };
 
@@ -19,6 +19,7 @@ export class WorldScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private worldData!: WorldData;
+  private touchDirection: 'up' | 'down' | 'left' | 'right' | undefined;
   private lastMoveSent = 0;
   private lastLocalPosition = { x: 0, y: 0 };
   private readonly pendingMoves = new Map<string, 'up' | 'down' | 'left' | 'right'>();
@@ -34,7 +35,17 @@ export class WorldScene extends Phaser.Scene {
     this.keys = this.input.keyboard!.addKeys('W,A,S,D,E') as Record<string, Phaser.Input.Keyboard.Key>;
     this.cameras.main.setBounds(0, 0, WORLD.width, WORLD.height);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
-    this.cameras.main.setZoom(Math.min(window.innerWidth / 920, window.innerHeight / 620, 1));
+    this.setResponsiveZoom();
+    window.addEventListener('resize', () => this.setResponsiveZoom());
+    document.querySelectorAll<HTMLButtonElement>('[data-direction]').forEach((button) => {
+      const direction = button.dataset.direction as 'up' | 'down' | 'left' | 'right';
+      const start = (event: Event) => { event.preventDefault(); this.touchDirection = direction; };
+      const stop = () => { if (this.touchDirection === direction) this.touchDirection = undefined; };
+      button.addEventListener('pointerdown', start, { passive: false });
+      button.addEventListener('pointerup', stop);
+      button.addEventListener('pointercancel', stop);
+      button.addEventListener('pointerleave', stop);
+    });
     this.bindRealtime(); this.applyServerPosition(5, 5);
   }
 
@@ -49,6 +60,7 @@ export class WorldScene extends Phaser.Scene {
     this.worldData.onSnapshot?.(snapshot);
     (snapshot.players as Array<Record<string, unknown>> | undefined)?.forEach((remote) => this.renderRemotePlayer(remote));
     (snapshot.farmItems as Array<Record<string, unknown>> | undefined)?.forEach((item) => this.renderFarmItem(item));
+    this.notifyFarmStatus();
   }
 
   update(time: number, delta: number): void {
@@ -56,27 +68,29 @@ export class WorldScene extends Phaser.Scene {
     const right = this.cursors.right.isDown || this.keys.D?.isDown;
     const up = this.cursors.up.isDown || this.keys.W?.isDown;
     const down = this.cursors.down.isDown || this.keys.S?.isDown;
-    const direction = right ? 'right' : left ? 'left' : down ? 'down' : up ? 'up' : undefined;
-    if (direction) {
-      const distance = MOVE_SPEED * Math.min(delta, 100) / 1_000;
-      const next = { x: this.player.x, y: this.player.y };
-      if (direction === 'right') next.x += distance;
-      if (direction === 'left') next.x -= distance;
-      if (direction === 'down') next.y += distance;
-      if (direction === 'up') next.y -= distance;
-      if (this.canOccupy(next.x, next.y)) { this.player.setPosition(next.x, next.y); this.updateNameTag(); }
-      if (time - this.lastMoveSent >= MOVE_SEND_INTERVAL && (this.player.x !== this.lastLocalPosition.x || this.player.y !== this.lastLocalPosition.y)) {
-        this.lastMoveSent = time; this.lastLocalPosition = { x: this.player.x, y: this.player.y };
-        const actionId = this.worldData.realtime.move(direction);
-        if (actionId) this.pendingMoves.set(actionId, direction);
-      }
-    }
+    const direction = this.touchDirection ?? (right ? 'right' : left ? 'left' : down ? 'down' : up ? 'up' : undefined);
+    if (direction) this.moveDirection(direction, time, delta);
     if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact();
+  }
+
+  private moveDirection(direction: 'up' | 'down' | 'left' | 'right', time: number, delta: number): void {
+    const distance = MOVE_SPEED * Math.min(delta, 100) / 1_000;
+    const next = { x: this.player.x, y: this.player.y };
+    if (direction === 'right') next.x += distance;
+    if (direction === 'left') next.x -= distance;
+    if (direction === 'down') next.y += distance;
+    if (direction === 'up') next.y -= distance;
+    if (this.canOccupy(next.x, next.y)) { this.player.setPosition(next.x, next.y); this.updateNameTag(); }
+    if (time - this.lastMoveSent >= MOVE_SEND_INTERVAL && (this.player.x !== this.lastLocalPosition.x || this.player.y !== this.lastLocalPosition.y)) {
+      this.lastMoveSent = time; this.lastLocalPosition = { x: this.player.x, y: this.player.y };
+      const actionId = this.worldData.realtime.move(direction);
+      if (actionId) this.pendingMoves.set(actionId, direction);
+    }
   }
 
   private bindRealtime(): void {
     this.worldData.realtime.onMessage((message) => {
-      if (message.type === 'wallet.updated') { const payload = message.payload as { coins?: number } | undefined; if (typeof payload?.coins === 'number') this.worldData.onCoins(payload.coins); }
+      if (message.type === 'wallet.updated') { const payload = message.payload as { coins?: number; inventory?: Record<string, number> } | undefined; if (typeof payload?.coins === 'number') this.worldData.onCoins(payload.coins); if (payload?.inventory) this.worldData.onInventory?.(payload.inventory); }
       if (message.type === 'farm.harvested') { const payload = message as { inventory?: Record<string, number>; item?: { id?: string } }; if (payload.inventory) this.worldData.onInventory?.(payload.inventory); if (payload.item?.id) this.removeFarmItem(payload.item.id); }
       if (message.type === 'farm.collected') { const payload = message as { inventory?: Record<string, number>; item?: Record<string, unknown> }; if (payload.inventory) this.worldData.onInventory?.(payload.inventory); if (payload.item) this.renderFarmItem(payload.item); }
       if (message.type === 'farm.updated') { const item = message.item as Record<string, unknown> | undefined; if (item) this.renderFarmItem(item); }
@@ -114,9 +128,12 @@ export class WorldScene extends Phaser.Scene {
     if (contentId === 'cow') body.fillStyle(color('#f5eee0'), 1).fillRoundedRect(-24, -16, 48, 28, 12).fillStyle(color(palette.soil), 1).fillCircle(10, -6, 5).fillStyle(color(palette.forest), 1).fillCircle(22, -8, 3);
     else if (contentId === 'dinosaur') body.fillStyle(color('#5d9854'), 1).fillEllipse(0, 0, 50, 28).fillStyle(color(palette.amber), 1).fillCircle(16, -9, 4);
     else body.fillStyle(color(ready ? palette.amber : palette.forest), 1).fillEllipse(0, 0, ready ? 25 : 15, ready ? 25 : 15).fillStyle(color(palette.coral), 1).fillCircle(-6, -3, ready ? 5 : 3).fillCircle(6, 2, ready ? 5 : 3);
-    const tag = this.label(ready ? 'pronto' : 'crescendo', position.x, position.y - 28, 9, palette.forest); this.farmItems.set(id, { id, contentId, ready, body, tag, x: position.x, y: position.y });
+    const tag = this.label(ready ? 'pronto' : 'crescendo', position.x, position.y - 28, 9, palette.forest); this.farmItems.set(id, { id, contentId, ready, body, tag, x: position.x, y: position.y }); this.notifyFarmStatus();
   }
-  private removeFarmItem(id: string): void { const item = this.farmItems.get(id); if (!item) return; item.body.destroy(); item.tag.destroy(); this.farmItems.delete(id); }
+  private removeFarmItem(id: string): void { const item = this.farmItems.get(id); if (!item) return; item.body.destroy(); item.tag.destroy(); this.farmItems.delete(id); this.notifyFarmStatus(); }
+  private notifyFarmStatus(): void { const ready = [...this.farmItems.values()].filter((item) => item.ready).length; this.worldData.onProduction?.(ready, this.farmItems.size); }
+
+  private setResponsiveZoom(): void { this.cameras.main.setZoom(Math.min(window.innerWidth / 920, window.innerHeight / 620, 1)); }
 
   private renderRemotePlayer(raw: Record<string, unknown>, forcedId?: string): void {
     const id = forcedId ?? String(raw.id ?? ''); const position = raw.position as { x?: number; y?: number } | undefined; if (!id || !position) return; this.removeRemotePlayer(id);
