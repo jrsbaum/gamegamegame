@@ -289,3 +289,19 @@ describe('catálogo de eventos regionais — Região Nordeste (T9)', () => {
     expectNoFlaggedItems(/quilombo|palmares|catucá|conceição das crioulas|indígena/i);
   });
 });
+
+describe('catálogo de eventos regionais — Região Centro-Oeste (T10)', () => {
+  it('valida sem lançar depois da região Centro-Oeste adicionada', () => {
+    expect(() => validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)).not.toThrow();
+  });
+
+  it('contagem por estado da região Centro-Oeste bate com o material de referência', () => {
+    expect(countByUf(['GO', 'MT', 'MS', 'DF'])).toEqual({ GO: 2, MT: 2, MS: 2, DF: 2 });
+  });
+
+  it('o evento "ambos" do Mato Grosso do Sul (Cheia do Pantanal) tem jogador e caracol definidos', () => {
+    const cheia = CARACOL_REGIONAL_EVENTS_CATALOG.find((event) => event.id === 'ms-cheia-do-pantanal');
+    expect(cheia?.jogador).toBeDefined();
+    expect(cheia?.caracol).toBeDefined();
+  });
+});
