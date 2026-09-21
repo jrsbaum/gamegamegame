@@ -174,20 +174,20 @@ caso de resgate duplo da Oktoberfest sendo recusado.
 
 | Requirement ID | Story | Phase | Status |
 | --------------- | ----------- | ------ | ------- |
-| REGCLIM-01 | P1: tick de 30min reavalia elegibilidade | Design | Pending |
-| REGCLIM-02 | P1: teto de 4 estados simultâneos | Design | Pending |
-| REGCLIM-03 | P1: não empilha, não interrompe | Design | Pending |
-| REGCLIM-04 | P1: expiração e ciclo de vida do efeito | Design | Pending |
-| REGCLIM-05 | P1: notificação de início/fim | Design | Pending |
-| REGCLIM-06 | P1: persistência e reload após restart | Design | Pending |
-| REGCLIM-07 | P1: alvo "ambos" atômico | Design | Pending |
-| REGCLIM-08 | P1: validação do catálogo no boot | Design | Pending |
-| REGCLIM-09 | P2: catálogo completo fiel ao material de referência | Design | Pending |
-| REGCLIM-10 | P2: itens ⚠️ nunca entram no catálogo | Design | Pending |
-| REGCLIM-11 | P2: perfis sazonal e raro coexistem como entradas distintas | Design | Pending |
-| REGCLIM-12 | P3: ETA borrado (Ceará) | Design | Pending |
-| REGCLIM-13 | P3: velocidade por localização do alvo (MG/MA) | Design | Pending |
-| REGCLIM-14 | P3: bônus resgatável idempotente (Oktoberfest) | Design | Pending |
+| REGCLIM-01 | P1: tick de 30min reavalia elegibilidade | Design | ✅ Verified |
+| REGCLIM-02 | P1: teto de 4 estados simultâneos | Design | ✅ Verified |
+| REGCLIM-03 | P1: não empilha, não interrompe | Design | ✅ Verified |
+| REGCLIM-04 | P1: expiração e ciclo de vida do efeito | Design | ✅ Verified |
+| REGCLIM-05 | P1: notificação de início/fim | Design | ✅ Verified |
+| REGCLIM-06 | P1: persistência e reload após restart | Design | ✅ Verified |
+| REGCLIM-07 | P1: alvo "ambos" atômico | Design | ✅ Verified |
+| REGCLIM-08 | P1: validação do catálogo no boot | Design | ✅ Verified |
+| REGCLIM-09 | P2: catálogo completo fiel ao material de referência | Design | ✅ Verified |
+| REGCLIM-10 | P2: itens ⚠️ nunca entram no catálogo | Design | ✅ Verified |
+| REGCLIM-11 | P2: perfis sazonal e raro coexistem como entradas distintas | Design | ✅ Verified |
+| REGCLIM-12 | P3: ETA borrado (Ceará) | Design | ✅ Verified |
+| REGCLIM-13 | P3: velocidade por localização do alvo (MG/MA) | Design | ✅ Verified |
+| REGCLIM-14 | P3: bônus resgatável idempotente (Oktoberfest) | Design | ✅ Verified |
 
 **ID format:** `REGCLIM-NN`
 

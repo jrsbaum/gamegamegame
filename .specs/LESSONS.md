@@ -56,6 +56,12 @@ Seen once or not yet corroborated. Tracked, not trusted.
 - evidence: CARSESS-03 (server/caracol)
 - last seen: 2026-09-21T16:46:33Z
 
+### L-016 - Quando uma regra 'não empilha/não interrompe' cobre mais de um perfil de estado (ex: sazonal e raro/com duração), teste cada perfil separadamente — um teste só com o perfil sazonal não exercita o ramo de expiração por timestamp usado pelo raro.
+- signal: `surviving_mutant` · recurrence: 1 feature(s) · scope: `server/caracol/regional-events.ts` · harmful: 0
+- features: caracol-eventos-regionais
+- evidence: server/caracol/regional-events.ts:70-73 (server/caracol/regional-events.ts)
+- last seen: 2026-09-21T18:39:38Z
+
 ## Quarantined (failed when applied - ignore)
 
 A confirmed lesson that recurred alongside failure. Kept for the maintainer to review.

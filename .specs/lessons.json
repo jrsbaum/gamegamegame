@@ -3,7 +3,7 @@
   "promote_threshold": 2,
   "window_days": 45,
   "quarantine_threshold": 2,
-  "next_id": 16,
+  "next_id": 17,
   "lessons": [
     {
       "id": "L-009",
@@ -130,6 +130,24 @@
       ],
       "created": "2026-09-21T16:46:33Z",
       "last_seen": "2026-09-21T16:46:33Z"
+    },
+    {
+      "id": "L-016",
+      "key": "surviving_mutant::quando uma regra nao empilha nao interrompe cobre mais de um perfil de estado ex sazonal e raro com duracao teste cada perfil separadamente um teste so com o perfil sazonal nao exercita o ramo de expiracao por timestamp usado pelo raro",
+      "text": "Quando uma regra 'não empilha/não interrompe' cobre mais de um perfil de estado (ex: sazonal e raro/com duração), teste cada perfil separadamente — um teste só com o perfil sazonal não exercita o ramo de expiração por timestamp usado pelo raro.",
+      "signal": "surviving_mutant",
+      "scope": "server/caracol/regional-events.ts",
+      "status": "candidate",
+      "features": [
+        "caracol-eventos-regionais"
+      ],
+      "recurrence": 1,
+      "harmful": 0,
+      "evidence": [
+        "server/caracol/regional-events.ts:70-73 (server/caracol/regional-events.ts)"
+      ],
+      "created": "2026-09-21T18:39:38Z",
+      "last_seen": "2026-09-21T18:39:38Z"
     }
   ]
 }
