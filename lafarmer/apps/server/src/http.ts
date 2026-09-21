@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import { createDefaultAppearance, CONTENT_CATALOG, isClothing, isHairStyle } from "@lafarmer/content";
+import { createDefaultAppearance, CONTENT_CATALOG, ITEM_CATALOG, isClothing, isHairStyle } from "@lafarmer/content";
 import { z } from "zod";
 import { AuthError, AuthService, PASSWORD_MIN_LENGTH } from "./auth-service.js";
 import { GameError, GameService } from "./game-service.js";
@@ -34,7 +34,7 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     environment: options.environment
   });
   const auth = new AuthService(persistence.repositories);
-  const game = new GameService({ players: persistence.repositories.players, farm: persistence.repositories.farm, market: persistence.repositories.market });
+  const game = new GameService({ players: persistence.repositories.players, farm: persistence.repositories.farm, market: persistence.repositories.market, wallet: persistence.repositories.wallet });
   const app = Fastify({ logger: options.logger ?? false });
   app.addHook('onRequest', async (request, reply) => {
     const allowedOrigin = process.env.CORS_ORIGIN ?? request.headers.origin ?? '';
@@ -50,7 +50,7 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
   app.addHook("onClose", async () => persistence.close());
 
   app.get("/healthz", async () => ({ status: "ok", service: "lafarmer-server" }));
-  app.get("/api/catalog", async () => ({ items: CONTENT_CATALOG }));
+  app.get("/api/catalog", async () => ({ items: CONTENT_CATALOG, inventoryItems: ITEM_CATALOG }));
 
   app.post("/api/auth/register", async (request, reply) => {
     const parsed = registerSchema.safeParse(request.body);
@@ -86,6 +86,12 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     } catch (error) {
       return sendDomainError(reply, error);
     }
+  });
+
+  app.get("/api/wallet", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    return reply.send({ entries: await game.wallet(player.id) });
   });
 
   app.patch("/api/player/profile", async (request, reply) => {
@@ -151,7 +157,7 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
   app.post("/api/market/listings", async (request, reply) => {
     const player = await authenticatedPlayer(request, auth);
     if (!player) return reply.code(401).send({ error: "unauthorized" });
-    const parsed = z.object({ contentId: z.string(), quantity: z.number(), unitPrice: z.number() }).safeParse(request.body);
+    const parsed = z.object({ contentId: z.string(), quantity: z.number(), unitPrice: z.number(), quality: z.enum(["common", "good", "perfect"]).optional() }).safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_listing" });
     try { return reply.code(201).send({ listing: await game.createListing(player.id, parsed.data) }); } catch (error) { return sendDomainError(reply, error); }
   });

@@ -1,5 +1,5 @@
-import type { Account, FarmItem, MarketListing, PlayerState, Session } from "./domain.js";
-import type { AccountRepository, FarmRepository, MarketListingResult, MarketPurchaseResult, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository } from "./repositories.js";
+import type { Account, FarmItem, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
+import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, WalletRepository } from "./repositories.js";
 
 class InMemoryAccounts implements AccountRepository {
   private readonly byId = new Map<string, Account>();
@@ -144,14 +144,21 @@ class InMemoryMarket implements MarketRepository {
   }
 }
 
+class InMemoryWallet implements WalletRepository {
+  private readonly entries = new Map<string, WalletEntry>();
+  async listByPlayerId(playerId: string): Promise<WalletEntry[]> { return [...this.entries.values()].filter((entry) => entry.playerId === playerId); }
+  async insert(entry: WalletEntry): Promise<void> { this.entries.set(entry.id, entry); }
+}
+
 /** Dev-only adapter. Replace this bundle with PostgreSQL implementations without changing use cases. */
 export function createInMemoryRepositories(): RepositoryBundle {
   const players = new InMemoryPlayers();
   return {
     accounts: new InMemoryAccounts(),
     sessions: new InMemorySessions(),
-    players,
+    players: new InMemoryPlayers(),
     farm: new InMemoryFarm(),
-    market: new InMemoryMarket(players)
+    market: new InMemoryMarket(),
+    wallet: new InMemoryWallet()
   };
 }

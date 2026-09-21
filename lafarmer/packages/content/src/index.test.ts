@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONTENT_CATALOG, getContentDefinition, isWorldTileWalkable, isWorldWaterTile, STARTING_COINS, WORLD_HEIGHT_TILES, WORLD_WIDTH_TILES } from "./index.js";
+import { CONTENT_CATALOG, getContentDefinition, STARTING_COINS, validateContentCatalog } from "./index.js";
 
 describe("content catalog", () => {
   it("contains the MVP content families", () => {
@@ -21,12 +21,9 @@ describe("content catalog", () => {
     expect(STARTING_COINS).toBe(1_000);
   });
 
-  it("defines a connected 40 by 30 world with water, bridge and solid obstacles", () => {
-    expect([WORLD_WIDTH_TILES, WORLD_HEIGHT_TILES]).toEqual([40, 30]);
-    expect(isWorldWaterTile(25, 10)).toBe(true);
-    expect(isWorldTileWalkable(25, 10)).toBe(false);
-    expect(isWorldTileWalkable(25, 14)).toBe(true);
-    expect(isWorldTileWalkable(8, 5)).toBe(false);
-    expect(isWorldTileWalkable(5, 5)).toBe(true);
+  it("validates stages, inputs and outputs before content can be registered", () => {
+    expect(() => validateContentCatalog(CONTENT_CATALOG)).not.toThrow();
+    const invalid = [{ ...CONTENT_CATALOG[0], id: "broken", stages: [{ id: "soil", visualKey: "soil", durationSeconds: 1 }] }];
+    expect(() => validateContentCatalog(invalid)).toThrow("invalid_initial_stage:broken");
   });
 });

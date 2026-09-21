@@ -1,4 +1,4 @@
-import type { Account, FarmItem, MarketListing, PlayerState, Session } from "./domain.js";
+import type { Account, FarmItem, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
 
 export type MarketListingResult = {
   listing: MarketListing;
@@ -49,10 +49,16 @@ export interface MarketRepository {
   purchaseListing(listingId: string, buyerId: string, idempotencyKey: string): Promise<MarketPurchaseResult>;
 }
 
+export interface WalletRepository {
+  listByPlayerId(playerId: string): Promise<WalletEntry[]>;
+  insert(entry: WalletEntry): Promise<void>;
+}
+
 export type RepositoryBundle = {
   accounts: AccountRepository;
   sessions: SessionRepository;
   players: PlayerRepository;
   farm: FarmRepository;
   market: MarketRepository;
+  wallet: WalletRepository;
 };

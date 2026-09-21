@@ -47,6 +47,10 @@ describe("LaFarmer server", () => {
     expect(me.statusCode).toBe(200);
     expect(me.json().player.appearance).toEqual({ clothing: "forest", hair: "short" });
 
+    const wallet = await app.inject({ method: "GET", url: "/api/wallet", headers: { authorization: `Bearer ${result.token}` } });
+    expect(wallet.statusCode).toBe(200);
+    expect(wallet.json().entries).toEqual([expect.objectContaining({ reason: "starting_balance", delta: 1_000, balance: 1_000 })]);
+
     const profile = await app.inject({
       method: "PATCH",
       url: "/api/player/profile",

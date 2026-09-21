@@ -32,11 +32,9 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
   wss.on("connection", (raw: WebSocket, _request: IncomingMessage, playerId: string) => {
     const client = raw as Client;
     client.playerId = playerId;
-    const previous = connections.get(playerId);
-    if (previous) {
-      clearInterval(previous.onlineTimer);
-      previous.client.close(4001, "replaced by a newer connection");
-    }
+    clients.set(playerId, client);
+    game.markOnlineActivity(playerId);
+    void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
     const onlineTimer = setInterval(() => void game.onlineTick(playerId).then((player) => send(client, { type: "wallet.updated", payload: { coins: player.coins } })), ONLINE_TICK_INTERVAL_MS);
     connections.set(playerId, { client, onlineTimer });
     void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
@@ -57,6 +55,7 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
   });
 
   async function handleMessage(client: Client, raw: string): Promise<void> {
+    game.markOnlineActivity(client.playerId!);
     let message: unknown;
     try {
       message = JSON.parse(raw);
