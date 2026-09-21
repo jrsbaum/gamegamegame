@@ -1,13 +1,21 @@
 export interface PlayerProfile {
   nick: string;
   name: string;
+  farmName: string;
+  specialization: 'fruits' | 'vegetables' | 'dinosaurs' | null;
+  plotId: string;
   outfit: 'forest' | 'coral' | 'river';
   hair: 'short' | 'long';
 }
 
+export type LandOption = { id: string; x: number; y: number; biome: string; title: string; feature: string; summary: string; fertility: number; nearbyNeighbors: number };
+
 export type ServerPlayer = {
   id: string;
   name: string;
+  farmName: string;
+  specialization: PlayerProfile['specialization'];
+  plot: LandOption | null;
   coins: number;
   appearance: { clothing: PlayerProfile['outfit']; hair: PlayerProfile['hair'] };
   position?: { x: number; y: number };
@@ -33,8 +41,12 @@ export function login(nick: string, password: string): Promise<AuthResult> {
   return api<AuthResult>('/api/auth/login', { method: 'POST', body: JSON.stringify({ nick, password }) });
 }
 
-export function updateProfile(token: string, profile: Pick<PlayerProfile, 'name' | 'outfit' | 'hair'>): Promise<{ player: ServerPlayer }> {
-  return api<{ player: ServerPlayer }>('/api/player/profile', { method: 'PATCH', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ name: profile.name, clothing: profile.outfit, hair: profile.hair }) });
+export function getLandOptions(token: string): Promise<{ options: LandOption[] }> {
+  return api<{ options: LandOption[] }>('/api/world/land-options', { method: 'GET', headers: { authorization: `Bearer ${token}` } });
+}
+
+export function updateProfile(token: string, profile: Pick<PlayerProfile, 'name' | 'farmName' | 'specialization' | 'plotId' | 'outfit' | 'hair'>): Promise<{ player: ServerPlayer }> {
+  return api<{ player: ServerPlayer }>('/api/player/profile', { method: 'PATCH', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ name: profile.name, farmName: profile.farmName, specialization: profile.specialization, plotId: profile.plotId, clothing: profile.outfit, hair: profile.hair }) });
 }
 
 export type MarketListing = { id: string; sellerId: string; sellerName: string; contentId: string; quantity: number; unitPrice: number; createdAt: number };
@@ -50,6 +62,8 @@ export class RealtimeClient {
   status: RealtimeStatus = 'offline-demo';
   private socket: WebSocket | undefined;
   private handlers = new Set<MessageHandler>();
+  private readonly moveSentAt = new Map<string, number>();
+  latencyMs = 0;
 
   constructor(url = import.meta.env.VITE_WS_URL || (import.meta.env.DEV ? 'ws://127.0.0.1:3337/ws' : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`)) { this.url = url; }
 
@@ -65,7 +79,14 @@ export class RealtimeClient {
         this.socket.addEventListener('error', () => finish('offline-demo'));
         this.socket.addEventListener('close', () => { this.status = 'offline-demo'; });
         this.socket.addEventListener('message', (event) => {
-          try { const message = JSON.parse(String(event.data)) as Record<string, unknown>; this.handlers.forEach((handler) => handler(message)); } catch { /* authoritative server owns the protocol */ }
+          try {
+            const message = JSON.parse(String(event.data)) as Record<string, unknown>;
+            if (message.type === 'move_ack' && typeof message.actionId === 'string') {
+              const sentAt = this.moveSentAt.get(message.actionId);
+              if (sentAt) { this.latencyMs = Date.now() - sentAt; this.moveSentAt.delete(message.actionId); }
+            }
+            this.handlers.forEach((handler) => handler(message));
+          } catch { /* authoritative server owns the protocol */ }
         });
         window.setTimeout(() => finish('offline-demo'), 1600);
       } catch { finish('offline-demo'); }
@@ -77,9 +98,11 @@ export class RealtimeClient {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify({ type, payload })); return true;
   }
-  move(direction: 'up' | 'down' | 'left' | 'right'): boolean {
+  move(direction: 'up' | 'down' | 'left' | 'right'): string | false {
     const actionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    return this.send('move', { actionId, direction });
+    if (!this.send('move', { actionId, direction })) return false;
+    this.moveSentAt.set(actionId, Date.now());
+    return actionId;
   }
   action(type: string, payload: Record<string, unknown> = {}): boolean { return this.send(type, payload); }
   close(): void { this.socket?.close(); this.socket = undefined; }

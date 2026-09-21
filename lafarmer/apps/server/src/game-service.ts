@@ -17,11 +17,14 @@ export class GameError extends Error {
 
 export class GameService {
   private readonly actionReceipts = new Map<string, MoveResult>();
+  private readonly activePlayers = new Map<string, PlayerState>();
+  private readonly pendingPersist = new Map<string, ReturnType<typeof setTimeout>>();
   constructor(private readonly repositories: GameRepositories, private readonly now: () => number = () => Date.now()) {}
 
   async snapshot(playerId: string): Promise<WorldSnapshot> {
     const player = await this.resume(playerId);
-    const [players, farmItems, listings] = await Promise.all([this.repositories.players.listAll(), this.repositories.farm.listAll(), this.repositories.market.listActive()]);
+    const [persistedPlayers, farmItems, listings] = await Promise.all([this.repositories.players.listAll(), this.repositories.farm.listAll(), this.repositories.market.listActive()]);
+    const players = persistedPlayers.map((candidate) => this.activePlayers.get(candidate.id) ?? candidate);
     return { bounds: WORLD_BOUNDS, player, players: players.filter((candidate) => candidate.id !== playerId), farmItems: farmItems.map((item) => this.toView(item)), listings };
   }
 
@@ -30,14 +33,14 @@ export class GameService {
     const elapsedSeconds = Math.min(OFFLINE_CAP_SECONDS, Math.max(0, Math.floor((this.now() - player.lastActiveAt) / 1_000)));
     if (elapsedSeconds === 0) return player;
     const updated = { ...player, coins: player.coins + Math.floor(elapsedSeconds / 60), lastActiveAt: this.now() };
-    await this.repositories.players.update(updated);
+    await this.savePlayer(updated);
     return updated;
   }
 
   async onlineTick(playerId: string): Promise<PlayerState> {
     const player = await this.requirePlayer(playerId);
     const updated = { ...player, coins: player.coins + ONLINE_COINS_PER_TICK, lastActiveAt: this.now() };
-    await this.repositories.players.update(updated);
+    await this.savePlayer(updated);
     return updated;
   }
 
@@ -54,7 +57,7 @@ export class GameService {
     if (command.direction === "left") position.x -= 1;
     if (command.direction === "right") position.x += 1;
     const updated: PlayerState = { ...player, lastActiveAt: this.now(), position: { x: clamp(position.x, WORLD_BOUNDS.minX, WORLD_BOUNDS.maxX), y: clamp(position.y, WORLD_BOUNDS.minY, WORLD_BOUNDS.maxY) } };
-    await this.repositories.players.update(updated);
+    await this.savePlayer(updated, false);
     const result: MoveResult = { actionId: command.actionId, accepted: true, player: updated };
     this.actionReceipts.set(receiptKey, result);
     return result;
@@ -70,7 +73,7 @@ export class GameService {
     if (player.coins < PLANT_COST) throw new GameError("insufficient_coins");
     const item: FarmItem = { id: randomUUID(), ownerId: playerId, contentId: definition.id, plantedAt: this.now(), lastCareAt: null, position: { x, y } };
     await this.repositories.farm.insert(item);
-    await this.repositories.players.update({ ...player, coins: player.coins - PLANT_COST, lastActiveAt: this.now() });
+    await this.savePlayer({ ...player, coins: player.coins - PLANT_COST, lastActiveAt: this.now() });
     return this.toView(item);
   }
 
@@ -84,7 +87,7 @@ export class GameService {
     if (player.coins < cost) throw new GameError("insufficient_coins");
     const item: FarmItem = { id: randomUUID(), ownerId: playerId, contentId: definition.id, plantedAt: this.now(), lastCareAt: null, position: { x, y } };
     await this.repositories.farm.insert(item);
-    await this.repositories.players.update({ ...player, coins: player.coins - cost, lastActiveAt: this.now() });
+    await this.savePlayer({ ...player, coins: player.coins - cost, lastActiveAt: this.now() });
     return this.toView(item);
   }
 
@@ -102,7 +105,7 @@ export class GameService {
     const player = await this.requirePlayer(playerId);
     const inventory = { ...player.inventory, [item.contentId]: (player.inventory[item.contentId] ?? 0) + 1 };
     await this.repositories.farm.delete(item.id);
-    await this.repositories.players.update({ ...player, inventory, lastActiveAt: this.now() });
+    await this.savePlayer({ ...player, inventory, lastActiveAt: this.now() });
     return { item: view, coins: player.coins, inventory };
   }
 
@@ -117,7 +120,7 @@ export class GameService {
     const inventory = { ...player.inventory, [produceId]: (player.inventory[produceId] ?? 0) + 1 };
     const updated = { ...item, lastCareAt: this.now() };
     await this.repositories.farm.update(updated);
-    await this.repositories.players.update({ ...player, inventory, lastActiveAt: this.now() });
+    await this.savePlayer({ ...player, inventory, lastActiveAt: this.now() });
     return { item: this.toView(updated), inventory };
   }
 
@@ -128,7 +131,7 @@ export class GameService {
     if ((player.inventory[input.contentId] ?? 0) < input.quantity) throw new GameError("invalid_quantity");
     const inventory = { ...player.inventory, [input.contentId]: (player.inventory[input.contentId] ?? 0) - input.quantity };
     const listing: MarketListing = { id: randomUUID(), sellerId: playerId, sellerName: player.name, contentId: input.contentId, quantity: input.quantity, unitPrice: input.unitPrice, createdAt: this.now() };
-    await this.repositories.players.update({ ...player, inventory, lastActiveAt: this.now() });
+    await this.savePlayer({ ...player, inventory, lastActiveAt: this.now() });
     await this.repositories.market.insert(listing);
     return listing;
   }
@@ -141,8 +144,8 @@ export class GameService {
     const total = listing.quantity * listing.unitPrice;
     if (buyer.coins < total) throw new GameError("insufficient_coins");
     const buyerInventory = { ...buyer.inventory, [listing.contentId]: (buyer.inventory[listing.contentId] ?? 0) + listing.quantity };
-    await this.repositories.players.update({ ...buyer, coins: buyer.coins - total, inventory: buyerInventory, lastActiveAt: this.now() });
-    await this.repositories.players.update({ ...seller, coins: seller.coins + total, lastActiveAt: this.now() });
+    await this.savePlayer({ ...buyer, coins: buyer.coins - total, inventory: buyerInventory, lastActiveAt: this.now() });
+    await this.savePlayer({ ...seller, coins: seller.coins + total, lastActiveAt: this.now() });
     await this.repositories.market.delete(listing.id);
     return { listing, coins: buyer.coins - total, inventory: buyerInventory };
   }
@@ -154,9 +157,29 @@ export class GameService {
   }
 
   private async requirePlayer(playerId: string): Promise<PlayerState> {
+    const active = this.activePlayers.get(playerId);
+    if (active) return active;
     const player = await this.repositories.players.findById(playerId);
     if (!player) throw new GameError("player_not_found");
+    this.activePlayers.set(playerId, player);
     return player;
+  }
+
+  private async savePlayer(player: PlayerState, immediate = true): Promise<void> {
+    this.activePlayers.set(player.id, player);
+    if (!immediate) {
+      if (this.pendingPersist.has(player.id)) return;
+      const timer = setTimeout(() => {
+        this.pendingPersist.delete(player.id);
+        const current = this.activePlayers.get(player.id);
+        if (current) void this.repositories.players.update(current);
+      }, 350);
+      this.pendingPersist.set(player.id, timer);
+      return;
+    }
+    const pending = this.pendingPersist.get(player.id);
+    if (pending) { clearTimeout(pending); this.pendingPersist.delete(player.id); }
+    await this.repositories.players.update(player);
   }
 
   private toView(item: FarmItem): FarmItemView {

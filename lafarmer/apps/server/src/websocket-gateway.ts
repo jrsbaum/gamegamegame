@@ -10,6 +10,7 @@ type Client = WebSocket & { playerId?: string };
 export function attachWebSocketGateway(server: Server, auth: AuthService, game: GameService): { close: () => Promise<void> } {
   const wss = new WebSocketServer({ noServer: true });
   const clients = new Map<string, Client>();
+  const messageQueues = new Map<Client, Promise<void>>();
 
   server.on("upgrade", (request, socket, head) => {
     const url = new URL(request.url ?? "/", "http://localhost");
@@ -35,10 +36,13 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     const onlineTimer = setInterval(() => void game.onlineTick(playerId).then((player) => send(client, { type: "wallet.updated", payload: { coins: player.coins } })), ONLINE_TICK_INTERVAL_MS);
 
     client.on("message", (data) => {
-      void handleMessage(client, data.toString());
+      const previous = messageQueues.get(client) ?? Promise.resolve();
+      const next = previous.then(() => handleMessage(client, data.toString())).catch(() => undefined);
+      messageQueues.set(client, next);
     });
     client.on("close", () => {
       clearInterval(onlineTimer);
+      messageQueues.delete(client);
       if (clients.get(playerId) === client) clients.delete(playerId);
       broadcastExcept(playerId, { type: "player_left", playerId });
     });

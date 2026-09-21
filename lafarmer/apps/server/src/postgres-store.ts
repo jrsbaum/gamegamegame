@@ -1,5 +1,5 @@
 import { Pool, type QueryResultRow } from "pg";
-import type { Account, FarmItem, MarketListing, PlayerState, Session } from "./domain.js";
+import type { Account, FarmItem, LandPlot, MarketListing, PlayerState, Session, Specialization } from "./domain.js";
 import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository } from "./repositories.js";
 
 export const POSTGRES_SCHEMA = `
@@ -21,6 +21,9 @@ CREATE TABLE IF NOT EXISTS players (
   id UUID PRIMARY KEY,
   account_id UUID NOT NULL UNIQUE REFERENCES accounts(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
+  farm_name TEXT NOT NULL DEFAULT '',
+  specialization TEXT,
+  plot JSONB,
   clothing TEXT NOT NULL CHECK (clothing IN ('forest', 'coral', 'river')),
   hair TEXT NOT NULL CHECK (hair IN ('short', 'long')),
   coins INTEGER NOT NULL DEFAULT 0 CHECK (coins >= 0),
@@ -32,6 +35,9 @@ CREATE TABLE IF NOT EXISTS players (
 
 ALTER TABLE players ADD COLUMN IF NOT EXISTS inventory JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE players ADD COLUMN IF NOT EXISTS farm_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE players ADD COLUMN IF NOT EXISTS specialization TEXT;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS plot JSONB;
 
 CREATE TABLE IF NOT EXISTS farm_items (
   id UUID PRIMARY KEY,
@@ -127,12 +133,15 @@ class PostgresPlayers implements PlayerRepository {
 
   async insert(player: PlayerState): Promise<void> {
     await this.pool.query(
-      `INSERT INTO players (id, account_id, name, clothing, hair, coins, inventory, last_active_at, position_x, position_y)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0), $9, $10)`,
+      `INSERT INTO players (id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, last_active_at, position_x, position_y)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11 / 1000.0), $12, $13)`,
       [
         player.id,
         player.accountId,
         player.name,
+        player.farmName,
+        player.specialization,
+        player.plot ? JSON.stringify(player.plot) : null,
         player.appearance.clothing,
         player.appearance.hair,
         player.coins,
@@ -147,11 +156,14 @@ class PostgresPlayers implements PlayerRepository {
   async update(player: PlayerState): Promise<void> {
     await this.pool.query(
       `UPDATE players
-       SET name = $2, clothing = $3, hair = $4, coins = $5, inventory = $6, last_active_at = to_timestamp($7 / 1000.0), position_x = $8, position_y = $9
+       SET name = $2, farm_name = $3, specialization = $4, plot = $5, clothing = $6, hair = $7, coins = $8, inventory = $9, last_active_at = to_timestamp($10 / 1000.0), position_x = $11, position_y = $12
        WHERE id = $1`,
       [
         player.id,
         player.name,
+        player.farmName,
+        player.specialization,
+        player.plot ? JSON.stringify(player.plot) : null,
         player.appearance.clothing,
         player.appearance.hair,
         player.coins,
@@ -214,6 +226,9 @@ type PlayerRow = QueryResultRow & {
   id: string;
   account_id: string;
   name: string;
+  farm_name: string;
+  specialization: Specialization | null;
+  plot: LandPlot | null;
   clothing: "forest" | "coral" | "river";
   hair: "short" | "long";
   coins: number;
@@ -223,7 +238,7 @@ type PlayerRow = QueryResultRow & {
   position_y: number;
 };
 
-const playerSelect = `SELECT id, account_id, name, clothing, hair, coins, inventory, last_active_at, position_x, position_y FROM players`;
+const playerSelect = `SELECT id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, last_active_at, position_x, position_y FROM players`;
 const farmSelect = `SELECT id, owner_id, content_id, planted_at, last_care_at, position_x, position_y FROM farm_items`;
 const marketSelect = `SELECT id, seller_id, seller_name, content_id, quantity, unit_price, created_at FROM market_listings`;
 
@@ -253,6 +268,9 @@ function mapPlayer(row: PlayerRow): PlayerState {
     id: row.id,
     accountId: row.account_id,
     name: row.name,
+    farmName: row.farm_name ?? "",
+    specialization: row.specialization,
+    plot: row.plot,
     appearance: { clothing: row.clothing, hair: row.hair },
     coins: row.coins,
     inventory: row.inventory ?? {},
