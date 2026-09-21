@@ -3,6 +3,7 @@ import WebSocket from "ws";
 import { createApp } from "./http.js";
 import { createPersistence } from "./persistence.js";
 import { createInMemoryRepositories } from "./in-memory-store.js";
+import { GameService } from "./game-service.js";
 
 const testPassword = "a".repeat(8);
 const alternateTestPassword = "b".repeat(8);
@@ -141,6 +142,52 @@ describe("LaFarmer server", () => {
     socket.close();
   });
 
+  it("reconnects with a fresh authoritative snapshot after the previous socket closes", async () => {
+    const app = createApp();
+    apps.push(app);
+    const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Reconnect", password: testPassword, credentialsSaved: true } });
+    const token = register.json().token as string;
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("server did not expose a port");
+    const first = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${token}`);
+    const firstMessages: Record<string, any>[] = [];
+    first.on("message", (data) => firstMessages.push(JSON.parse(data.toString())));
+    await openSocket(first);
+    await waitFor(() => firstMessages.some((message) => message.type === "hello"));
+    const firstHello = firstMessages.find((message) => message.type === "hello");
+    if (!firstHello) throw new Error("missing first websocket snapshot");
+    const initialX = firstHello.snapshot.player.position.x;
+    first.send(JSON.stringify({ type: "move", actionId: "reconnect-move", direction: "right" }));
+    await waitFor(() => firstMessages.some((message) => message.type === "move_ack"));
+    await closeSocket(first);
+    const second = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${token}`);
+    const secondMessages: Record<string, any>[] = [];
+    second.on("message", (data) => secondMessages.push(JSON.parse(data.toString())));
+    await openSocket(second);
+    await waitFor(() => secondMessages.some((message) => message.type === "hello"));
+    const hello = secondMessages.find((message) => message.type === "hello");
+    if (!hello) throw new Error("missing reconnect websocket snapshot");
+    expect(hello.snapshot.player.position.x).toBe(initialX + 1);
+    second.send(JSON.stringify({ type: "snapshot.get" }));
+    await waitFor(() => secondMessages.some((message) => message.type === "snapshot"));
+    const snapshot = secondMessages.find((message) => message.type === "snapshot");
+    if (!snapshot) throw new Error("missing explicit websocket snapshot");
+    expect(snapshot.snapshot.player.position.x).toBe(initialX + 1);
+    second.close();
+  });
+
+  it("keeps online and offline wallet accrual on the same minute boundary", async () => {
+    let now = 1_700_000_000_000;
+    const repositories = createInMemoryRepositories();
+    await repositories.players.insert({ id: "wallet-player", accountId: "wallet-account", name: "Wallet", farmName: "", specialization: null, plot: null, appearance: { clothing: "forest", hair: "short" }, coins: 0, inventory: {}, lastActiveAt: now, position: { x: 5, y: 5 } });
+    const game = new GameService({ players: repositories.players, farm: repositories.farm, market: repositories.market }, () => now);
+    now += 60_000;
+    expect((await game.onlineTick("wallet-player")).coins).toBe(10);
+    now += 60_000;
+    expect((await game.snapshot("wallet-player")).player.coins).toBe(11);
+  });
+
   it("plants, persists a farm item and completes a player-to-player market trade", async () => {
     const repositories = createInMemoryRepositories();
     const app = createApp({ repositories });
@@ -159,11 +206,38 @@ describe("LaFarmer server", () => {
 
     const listing = await app.inject({ method: "POST", url: "/api/market/listings", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", quantity: 1, unitPrice: 30 } });
     expect(listing.statusCode).toBe(201);
-    const purchase = await app.inject({ method: "POST", url: `/api/market/${listing.json().listing.id}/buy`, headers: { authorization: `Bearer ${buyer.json().token}` }, payload: {} });
+    const purchase = await app.inject({ method: "POST", url: `/api/market/${listing.json().listing.id}/buy`, headers: { authorization: `Bearer ${buyer.json().token}`, "idempotency-key": "purchase-1" }, payload: {} });
     expect(purchase.statusCode).toBe(200);
     expect(purchase.json().inventory.tomato).toBe(1);
     expect(purchase.json().coins).toBe(970);
     expect((await app.inject({ method: "GET", url: "/api/market" })).json().listings).toHaveLength(0);
+  });
+
+  it("applies a market purchase once under retries and concurrent buyers", async () => {
+    const repositories = createInMemoryRepositories();
+    const app = createApp({ repositories });
+    apps.push(app);
+    const seller = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "MarketSeller", password: testPassword, credentialsSaved: true } });
+    const buyerA = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "MarketBuyerA", password: alternateTestPassword, credentialsSaved: true } });
+    const buyerB = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "MarketBuyerB", password: testPassword, credentialsSaved: true } });
+    const sellerPlayer = await repositories.players.findByAccountId(seller.json().player.accountId);
+    if (!sellerPlayer) throw new Error("seller player missing");
+    await repositories.players.update({ ...sellerPlayer, inventory: { tomato: 1 } });
+    const listing = await app.inject({ method: "POST", url: "/api/market/listings", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", quantity: 1, unitPrice: 30 } });
+    const listingId = listing.json().listing.id as string;
+    const [first, second] = await Promise.all([
+      app.inject({ method: "POST", url: `/api/market/${listingId}/buy`, headers: { authorization: `Bearer ${buyerA.json().token}`, "idempotency-key": "buyer-a-1" }, payload: {} }),
+      app.inject({ method: "POST", url: `/api/market/${listingId}/buy`, headers: { authorization: `Bearer ${buyerB.json().token}`, "idempotency-key": "buyer-b-1" }, payload: {} })
+    ]);
+    expect([first.statusCode, second.statusCode].sort()).toEqual([200, 404]);
+    const winner = first.statusCode === 200 ? first : second;
+    const winnerToken = first.statusCode === 200 ? buyerA.json().token : buyerB.json().token;
+    expect(winner.json().inventory.tomato).toBe(1);
+    const replay = await app.inject({ method: "POST", url: `/api/market/${listingId}/buy`, headers: { authorization: `Bearer ${winnerToken}`, "idempotency-key": first.statusCode === 200 ? "buyer-a-1" : "buyer-b-1" }, payload: {} });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().replayed).toBe(true);
+    expect(replay.json().inventory.tomato).toBe(1);
+    expect((await repositories.market.listActive())).toHaveLength(0);
   });
 
   it("adopts an animal through the same catalog-driven farm entity flow", async () => {
@@ -183,4 +257,18 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     if (Date.now() - startedAt > 2_000) throw new Error("timed out waiting for websocket message");
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+}
+
+async function openSocket(socket: WebSocket): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    socket.once("open", () => resolve());
+    socket.once("error", reject);
+  });
+}
+
+async function closeSocket(socket: WebSocket): Promise<void> {
+  await new Promise<void>((resolve) => {
+    socket.once("close", () => resolve());
+    socket.close();
+  });
 }

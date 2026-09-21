@@ -34,10 +34,10 @@ O adaptador in-memory continua disponível em `createInMemoryRepositories()` par
 - `PATCH /api/player/profile` com `{ name, clothing, hair }`
 - `GET /api/world/snapshot` com `Authorization: Bearer <token>`
 - `GET /api/farm`, `POST /api/farm/plant`, `POST /api/farm/adopt`, `POST /api/farm/:id/care`, `POST /api/farm/:id/harvest` e `POST /api/farm/:id/collect`
-- `GET /api/market`, `POST /api/market/listings` e `POST /api/market/:id/buy`
+- `GET /api/market`, `POST /api/market/listings` e `POST /api/market/:id/buy` (a compra exige `Idempotency-Key` ou `{ idempotencyKey }`)
 
 ### WebSocket
 
-Conecte em `/ws?token=<token>`. O servidor envia `hello` com jogadores, entidades e anúncios. Os comandos usam `{ type, payload }`: `move`, `farm.plant`, `farm.adopt`, `farm.care`, `farm.harvest`, `farm.collect`, `market.list` e `market.buy`. A posição, moedas, inventário e ações sempre são validados no servidor.
+Conecte em `/ws?token=<token>`. O servidor envia `hello` com jogadores, entidades e anúncios, aceita `snapshot.get` para uma nova fotografia autoritativa e envia `snapshot` depois de mutações. Os comandos usam `{ type, payload }`: `move`, `farm.plant`, `farm.adopt`, `farm.care`, `farm.harvest`, `farm.collect`, `market.list` e `market.buy` (este último com `idempotencyKey`). A posição, moedas, inventário e ações sempre são validados no servidor.
 
-O adaptador PostgreSQL cria o schema de contas, sessões, jogadores, plantios e anúncios de forma idempotente. Rate limiting, rotação/revogação de sessão, observabilidade avançada e uma migração versionada continuam como endurecimento pós-MVP.
+O adaptador PostgreSQL cria o schema de contas, sessões, jogadores, plantios, anúncios e recibos de compra de forma idempotente. Listagem e compra usam transação; a compra trava os jogadores, remove o anúncio uma vez e guarda o recibo para retries. Online rende 10 moedas por minuto; offline rende 1 moeda por minuto, limitado a 24 horas. Rate limiting, rotação/revogação de sessão, observabilidade avançada e uma migração versionada continuam como endurecimento pós-MVP.

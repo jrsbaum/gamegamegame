@@ -18,6 +18,7 @@ const profileSchema = z.object({
   specialization: z.enum(["fruits", "vegetables", "dinosaurs"]).optional(),
   plotId: z.string().optional()
 });
+const marketPurchaseSchema = z.object({ idempotencyKey: z.string().regex(/^[a-zA-Z0-9._:-]{1,128}$/).optional() });
 
 export type ServerOptions = {
   repositories?: RepositoryBundle;
@@ -158,7 +159,13 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
   app.post("/api/market/:listingId/buy", async (request, reply) => {
     const player = await authenticatedPlayer(request, auth);
     if (!player) return reply.code(401).send({ error: "unauthorized" });
-    try { return reply.send(await game.buyListing(player.id, (request.params as { listingId: string }).listingId)); } catch (error) { return sendDomainError(reply, error); }
+    const parsed = marketPurchaseSchema.safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_action" });
+    const header = request.headers["idempotency-key"];
+    const headerKey = Array.isArray(header) ? header[0] : header;
+    const idempotencyKey = headerKey ?? parsed.data.idempotencyKey;
+    if (!idempotencyKey) return reply.code(400).send({ error: "invalid_action" });
+    try { return reply.send(await game.buyListing(player.id, (request.params as { listingId: string }).listingId, idempotencyKey)); } catch (error) { return sendDomainError(reply, error); }
   });
 
   return app;

@@ -6,10 +6,11 @@ import { ONLINE_TICK_INTERVAL_MS, type GameService } from "./game-service.js";
 import type { Direction } from "./domain.js";
 
 type Client = WebSocket & { playerId?: string };
+type Connection = { client: Client; onlineTimer: ReturnType<typeof setInterval> };
 
 export function attachWebSocketGateway(server: Server, auth: AuthService, game: GameService): { close: () => Promise<void> } {
   const wss = new WebSocketServer({ noServer: true });
-  const clients = new Map<string, Client>();
+  const connections = new Map<string, Connection>();
   const messageQueues = new Map<Client, Promise<void>>();
 
   server.on("upgrade", (request, socket, head) => {
@@ -31,9 +32,14 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
   wss.on("connection", (raw: WebSocket, _request: IncomingMessage, playerId: string) => {
     const client = raw as Client;
     client.playerId = playerId;
-    clients.set(playerId, client);
-    void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
+    const previous = connections.get(playerId);
+    if (previous) {
+      clearInterval(previous.onlineTimer);
+      previous.client.close(4001, "replaced by a newer connection");
+    }
     const onlineTimer = setInterval(() => void game.onlineTick(playerId).then((player) => send(client, { type: "wallet.updated", payload: { coins: player.coins } })), ONLINE_TICK_INTERVAL_MS);
+    connections.set(playerId, { client, onlineTimer });
+    void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
 
     client.on("message", (data) => {
       const previous = messageQueues.get(client) ?? Promise.resolve();
@@ -43,8 +49,10 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     client.on("close", () => {
       clearInterval(onlineTimer);
       messageQueues.delete(client);
-      if (clients.get(playerId) === client) clients.delete(playerId);
-      broadcastExcept(playerId, { type: "player_left", playerId });
+      if (connections.get(playerId)?.client === client) {
+        connections.delete(playerId);
+        broadcastExcept(playerId, { type: "player_left", playerId });
+      }
     });
   });
 
@@ -68,13 +76,15 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
         broadcastExcept(client.playerId!, { type: "player_moved", playerId: client.playerId, player: result.player });
       } else {
         const payload = readPayload(message);
+        if (message.type === "snapshot.get") { await sendSnapshot(client); return; }
         if (message.type === "farm.plant") send(client, { type: "farm.updated", item: await game.plant(client.playerId!, { contentId: String(payload.contentId), x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
         if (message.type === "farm.adopt") send(client, { type: "farm.updated", item: await game.adopt(client.playerId!, { contentId: String(payload.contentId), x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
         if (message.type === "farm.care") send(client, { type: "farm.updated", item: await game.care(client.playerId!, String(payload.itemId)) });
         if (message.type === "farm.harvest") { const result = await game.harvest(client.playerId!, String(payload.itemId)); send(client, { type: "farm.harvested", ...result }); }
         if (message.type === "farm.collect") { const result = await game.collect(client.playerId!, String(payload.itemId)); send(client, { type: "farm.collected", ...result }); }
         if (message.type === "market.list") send(client, { type: "market.updated", listing: await game.createListing(client.playerId!, { contentId: String(payload.contentId), quantity: Number(payload.quantity), unitPrice: Number(payload.unitPrice) }) });
-        if (message.type === "market.buy") { const result = await game.buyListing(client.playerId!, String(payload.listingId)); send(client, { type: "market.purchased", ...result }); }
+        if (message.type === "market.buy") { const result = await game.buyListing(client.playerId!, String(payload.listingId), String(payload.idempotencyKey ?? payload.actionId ?? "")); send(client, { type: "market.purchased", ...result }); }
+        await sendSnapshot(client);
       }
     } catch (error) {
       send(client, { type: "error", code: error instanceof Error ? error.message : "move_failed" });
@@ -83,14 +93,20 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
 
   function broadcastExcept(playerId: string, payload: unknown): void {
     const serialized = JSON.stringify(payload);
-    for (const [otherId, client] of clients) {
-      if (otherId !== playerId && client.readyState === WebSocket.OPEN) client.send(serialized);
+    for (const [otherId, connection] of connections) {
+      if (otherId !== playerId && connection.client.readyState === WebSocket.OPEN) connection.client.send(serialized);
     }
+  }
+
+  async function sendSnapshot(client: Client): Promise<void> {
+    if (!client.playerId) return;
+    send(client, { type: "snapshot", snapshot: await game.snapshot(client.playerId) });
   }
 
   return {
     close: async () => {
-      for (const client of clients.values()) client.close();
+      for (const connection of connections.values()) { clearInterval(connection.onlineTimer); connection.client.close(); }
+      connections.clear();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
   };
@@ -113,7 +129,7 @@ function isMoveMessage(value: unknown): value is { type: "move"; actionId: strin
 function isSupportedMessage(value: unknown): value is Record<string, unknown> & { type: string } {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
-  return typeof message.type === "string" && ["move", "farm.plant", "farm.adopt", "farm.care", "farm.harvest", "farm.collect", "market.list", "market.buy"].includes(message.type);
+  return typeof message.type === "string" && ["move", "snapshot.get", "farm.plant", "farm.adopt", "farm.care", "farm.harvest", "farm.collect", "market.list", "market.buy"].includes(message.type);
 }
 
 function readPayload(value: Record<string, unknown>): Record<string, unknown> {

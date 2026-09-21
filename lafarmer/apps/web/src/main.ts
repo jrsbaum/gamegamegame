@@ -31,7 +31,7 @@ function renderAuth(shell: HTMLDivElement): void {
     draft = { nick, password }; error.textContent = 'Conectando ao vale…';
     try {
       const result = mode === 'create' ? await register(nick, password) : await login(nick, password);
-      authToken = result.token; profile.nick = nick; profile.name = result.player.name; profile.farmName = result.player.farmName || ''; profile.specialization = result.player.specialization; profile.plotId = result.player.plot?.id || ''; profile.outfit = result.player.appearance.clothing; profile.hair = result.player.appearance.hair; selectedLandId = profile.plotId; selectedSpecialization = profile.specialization || 'vegetables'; coins = result.player.coins; screen = 'confirm'; render();
+      authToken = result.token; profile.nick = nick; profile.name = result.player.name; profile.farmName = result.player.farmName || ''; profile.specialization = result.player.specialization; profile.plotId = result.player.plot?.id || ''; profile.outfit = result.player.appearance.clothing; profile.hair = result.player.appearance.hair; selectedLandId = profile.plotId; selectedSpecialization = profile.specialization || 'vegetables'; coins = result.player.coins; inventory = result.player.inventory || {}; screen = 'confirm'; render();
     } catch (requestError) {
       error.textContent = requestError instanceof Error && requestError.message === 'nick_taken' ? 'Esse nick já está ocupado.' : 'Não foi possível entrar. Confira os dados e o servidor.';
     }
@@ -69,7 +69,7 @@ function renderGame(): void {
   root.insertAdjacentHTML('afterbegin', `<button id="menu-toggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="game-sidebar">☰ Menu</button><aside id="game-sidebar" class="game-sidebar" aria-label="Menu lateral" hidden><div class="sidebar-brand"><span class="eyebrow">LaFarmer</span><strong>${escapeHtml(profile.farmName || 'Minha fazenda')}</strong><small>${specializationLabel(profile.specialization)}</small></div><nav class="sidebar-nav" aria-label="Navegação da fazenda"><button type="button" data-sidebar="farm">Minha fazenda</button><button type="button" data-sidebar="map">Mapa do mundo</button><button type="button" data-sidebar="market">Mercadinho</button><button type="button" data-sidebar="inventory">Inventário</button><button type="button" data-sidebar="wardrobe">Guarda-roupa</button></nav><p id="sidebar-message" class="sidebar-message">O mundo continua ativo enquanto você estiver fora.</p></aside>`);
   const menu = root.querySelector<HTMLButtonElement>('#menu-toggle')!; const sidebar = root.querySelector<HTMLElement>('#game-sidebar')!; const sidebarMessage = root.querySelector<HTMLParagraphElement>('#sidebar-message')!;
   menu.addEventListener('click', () => { sidebar.hidden = !sidebar.hidden; menu.setAttribute('aria-expanded', String(!sidebar.hidden)); });
-  root.querySelectorAll<HTMLButtonElement>('[data-sidebar]').forEach((button) => button.addEventListener('click', () => { const action = button.dataset.sidebar; if (action === 'market') openMarketPanel(); else sidebarMessage.textContent = action === 'farm' ? `${profile.farmName || 'Sua fazenda'} · ${specializationLabel(profile.specialization)}.` : action === 'map' ? 'O mapa global está conectado pela mesma fronteira do seu terreno.' : action === 'inventory' ? 'Seu estoque aparece no Mercadinho quando houver algo para vender.' : 'O guarda-roupa vai permitir trocar roupa e cabelo sem alterar sua terra.'; }));
+  root.querySelectorAll<HTMLButtonElement>('[data-sidebar]').forEach((button) => button.addEventListener('click', () => { const action = button.dataset.sidebar; if (action === 'market') openMarketPanel(); else if (action === 'inventory') sidebarMessage.innerHTML = `<strong>Carteira: ${coins.toLocaleString('pt-BR')} moedas</strong><br>${inventorySummary()}`; else sidebarMessage.textContent = action === 'farm' ? `${profile.farmName || 'Sua fazenda'} · ${specializationLabel(profile.specialization)}.` : action === 'map' ? 'O mapa global está conectado pela mesma fronteira do seu terreno.' : 'O guarda-roupa vai permitir trocar roupa e cabelo sem alterar sua terra.'; }));
   const gameRoot = root.querySelector<HTMLDivElement>('#game-root')!;
   void realtime.connect(authToken).then((status) => {
     const indicator = root.querySelector<HTMLSpanElement>('#connection-status');
@@ -104,6 +104,11 @@ async function openMarketPanel(): Promise<void> {
 }
 
 function messageFromRoot(text: string): void { const target = root.querySelector<HTMLParagraphElement>('#action-message'); if (target) target.textContent = text; }
+
+function inventorySummary(): string {
+  const entries = Object.entries(inventory).filter(([, quantity]) => quantity > 0);
+  return entries.length ? entries.map(([contentId, quantity]) => `${escapeHtml(contentId)} · ${quantity} unidade(s)`).join('<br>') : 'Inventário vazio por enquanto.';
+}
 
 function specializationLabel(value: PlayerProfile['specialization']): string { return value === 'fruits' ? 'especialização · frutas' : value === 'dinosaurs' ? 'especialização · dinossauros' : 'especialização · legumes'; }
 

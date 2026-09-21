@@ -5,9 +5,12 @@ import type { FarmRepository, MarketRepository, PlayerRepository } from "./repos
 
 const WORLD_BOUNDS = { minX: 0, maxX: WORLD_WIDTH_TILES - 1, minY: 0, maxY: WORLD_HEIGHT_TILES - 1 } as const;
 const OFFLINE_CAP_SECONDS = 24 * 60 * 60;
-const ONLINE_COINS_PER_TICK = 10;
+export const OFFLINE_COINS_PER_MINUTE = 1;
+export const ONLINE_COINS_PER_TICK = 10;
 const ONLINE_TICK_MS = 60_000;
 const PLANT_COST = 10;
+const MAX_MARKET_QUANTITY = 10_000;
+const MAX_MARKET_UNIT_PRICE = 1_000_000_000;
 
 export type GameRepositories = { players: PlayerRepository; farm: FarmRepository; market: MarketRepository };
 
@@ -29,18 +32,17 @@ export class GameService {
   }
 
   async resume(playerId: string): Promise<PlayerState> {
-    const player = await this.requirePlayer(playerId);
-    const elapsedSeconds = Math.min(OFFLINE_CAP_SECONDS, Math.max(0, Math.floor((this.now() - player.lastActiveAt) / 1_000)));
-    if (elapsedSeconds === 0) return player;
-    const updated = { ...player, coins: player.coins + Math.floor(elapsedSeconds / 60), lastActiveAt: this.now() };
-    await this.savePlayer(updated);
+    await this.flushPending(playerId);
+    const updated = await this.repositories.players.accrueOffline(playerId, this.now(), OFFLINE_CAP_SECONDS, OFFLINE_COINS_PER_MINUTE);
+    if (!updated) throw new GameError("player_not_found");
+    this.activePlayers.set(updated.id, updated);
     return updated;
   }
 
   async onlineTick(playerId: string): Promise<PlayerState> {
-    const player = await this.requirePlayer(playerId);
-    const updated = { ...player, coins: player.coins + ONLINE_COINS_PER_TICK, lastActiveAt: this.now() };
-    await this.savePlayer(updated);
+    const updated = await this.repositories.players.creditCoins(playerId, ONLINE_COINS_PER_TICK, this.now());
+    if (!updated) throw new GameError("player_not_found");
+    this.activePlayers.set(updated.id, updated);
     return updated;
   }
 
@@ -126,29 +128,26 @@ export class GameService {
   }
 
   async createListing(playerId: string, input: { contentId: string; quantity: number; unitPrice: number }): Promise<MarketListing> {
-    if (!Number.isInteger(input.quantity) || input.quantity < 1) throw new GameError("invalid_quantity");
-    if (!Number.isInteger(input.unitPrice) || input.unitPrice < 1) throw new GameError("invalid_price");
+    const definition = getContentDefinition(input.contentId);
+    if (!definition) throw new GameError("invalid_content");
+    if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > MAX_MARKET_QUANTITY) throw new GameError("invalid_quantity");
+    if (!Number.isInteger(input.unitPrice) || input.unitPrice < 1 || input.unitPrice > MAX_MARKET_UNIT_PRICE) throw new GameError("invalid_price");
     const player = await this.requirePlayer(playerId);
     if ((player.inventory[input.contentId] ?? 0) < input.quantity) throw new GameError("invalid_quantity");
-    const inventory = { ...player.inventory, [input.contentId]: (player.inventory[input.contentId] ?? 0) - input.quantity };
     const listing: MarketListing = { id: randomUUID(), sellerId: playerId, sellerName: player.name, contentId: input.contentId, quantity: input.quantity, unitPrice: input.unitPrice, createdAt: this.now() };
-    await this.savePlayer({ ...player, inventory, lastActiveAt: this.now() });
-    await this.repositories.market.insert(listing);
-    return listing;
+    let result;
+    try { result = await this.repositories.market.createListing(listing); } catch (error) { throw asGameError(error); }
+    this.activePlayers.set(result.player.id, result.player);
+    return result.listing;
   }
 
-  async buyListing(playerId: string, listingId: string): Promise<{ listing: MarketListing; coins: number; inventory: Record<string, number> }> {
-    const listing = await this.repositories.market.findById(listingId);
-    if (!listing) throw new GameError("listing_not_found");
-    if (listing.sellerId === playerId) throw new GameError("cannot_buy_own_listing");
-    const [buyer, seller] = await Promise.all([this.requirePlayer(playerId), this.requirePlayer(listing.sellerId)]);
-    const total = listing.quantity * listing.unitPrice;
-    if (buyer.coins < total) throw new GameError("insufficient_coins");
-    const buyerInventory = { ...buyer.inventory, [listing.contentId]: (buyer.inventory[listing.contentId] ?? 0) + listing.quantity };
-    await this.savePlayer({ ...buyer, coins: buyer.coins - total, inventory: buyerInventory, lastActiveAt: this.now() });
-    await this.savePlayer({ ...seller, coins: seller.coins + total, lastActiveAt: this.now() });
-    await this.repositories.market.delete(listing.id);
-    return { listing, coins: buyer.coins - total, inventory: buyerInventory };
+  async buyListing(playerId: string, listingId: string, idempotencyKey = listingId): Promise<{ listing: MarketListing; coins: number; inventory: Record<string, number>; replayed: boolean }> {
+    if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(idempotencyKey)) throw new GameError("invalid_action");
+    let result;
+    try { result = await this.repositories.market.purchaseListing(listingId, playerId, idempotencyKey); } catch (error) { throw asGameError(error); }
+    this.activePlayers.set(result.buyer.id, result.buyer);
+    this.activePlayers.set(result.seller.id, result.seller);
+    return { listing: result.listing, coins: result.buyer.coins, inventory: result.buyer.inventory, replayed: result.replayed };
   }
 
   private async findOwnedItem(playerId: string, itemId: string): Promise<FarmItem> {
@@ -188,6 +187,15 @@ export class GameService {
     await this.repositories.players.update(player);
   }
 
+  private async flushPending(playerId: string): Promise<void> {
+    const pending = this.pendingPersist.get(playerId);
+    if (!pending) return;
+    clearTimeout(pending);
+    this.pendingPersist.delete(playerId);
+    const current = this.activePlayers.get(playerId);
+    if (current) await this.repositories.players.update(current);
+  }
+
   private toView(item: FarmItem): FarmItemView {
     const definition = getContentDefinition(item.contentId);
     if (!definition) throw new GameError("invalid_content");
@@ -210,3 +218,9 @@ export const ONLINE_TICK_INTERVAL_MS = ONLINE_TICK_MS;
 
 function isDirection(value: string): value is Direction { return value === "up" || value === "down" || value === "left" || value === "right"; }
 function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }
+
+function asGameError(error: unknown): Error {
+  const code = error instanceof Error ? error.message : "";
+  const codes: GameError["code"][] = ["player_not_found", "invalid_quantity", "listing_not_found", "cannot_buy_own_listing", "insufficient_coins"];
+  return codes.includes(code as GameError["code"]) ? new GameError(code as GameError["code"]) : error instanceof Error ? error : new Error("market_failed");
+}

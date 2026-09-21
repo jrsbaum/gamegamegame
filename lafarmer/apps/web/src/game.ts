@@ -9,7 +9,7 @@ const PLAYER_RADIUS = 13;
 const RECONCILE_DISTANCE = 44;
 const color = (hex: string): number => Number(`0x${hex.slice(1)}`);
 
-interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onMarket?: () => void; }
+interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onSnapshot?: (snapshot: Record<string, unknown>) => void; onMarket?: () => void; }
 type RemoteView = { body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text };
 type FarmView = { id: string; contentId: string; ready: boolean; body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text; x: number; y: number };
 
@@ -36,6 +36,19 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setZoom(Math.min(window.innerWidth / 920, window.innerHeight / 620, 1));
     this.bindRealtime(); this.applyServerPosition(5, 5);
+  }
+
+  private applySnapshot(snapshot: Record<string, unknown>): void {
+    this.remotePlayers.forEach((view) => { view.body.destroy(); view.tag.destroy(); });
+    this.remotePlayers.clear();
+    this.farmItems.forEach((view) => { view.body.destroy(); view.tag.destroy(); });
+    this.farmItems.clear();
+    const player = snapshot.player as { coins?: number; inventory?: Record<string, number> } | undefined;
+    if (typeof player?.coins === 'number') this.worldData.onCoins(player.coins);
+    if (player?.inventory) this.worldData.onInventory?.(player.inventory);
+    this.worldData.onSnapshot?.(snapshot);
+    (snapshot.players as Array<Record<string, unknown>> | undefined)?.forEach((remote) => this.renderRemotePlayer(remote));
+    (snapshot.farmItems as Array<Record<string, unknown>> | undefined)?.forEach((item) => this.renderFarmItem(item));
   }
 
   update(time: number, delta: number): void {
@@ -67,11 +80,7 @@ export class WorldScene extends Phaser.Scene {
       if (message.type === 'farm.harvested') { const payload = message as { inventory?: Record<string, number>; item?: { id?: string } }; if (payload.inventory) this.worldData.onInventory?.(payload.inventory); if (payload.item?.id) this.removeFarmItem(payload.item.id); }
       if (message.type === 'farm.collected') { const payload = message as { inventory?: Record<string, number>; item?: Record<string, unknown> }; if (payload.inventory) this.worldData.onInventory?.(payload.inventory); if (payload.item) this.renderFarmItem(payload.item); }
       if (message.type === 'farm.updated') { const item = message.item as Record<string, unknown> | undefined; if (item) this.renderFarmItem(item); }
-      if (message.type === 'hello') {
-        const snapshot = message.snapshot as { player?: { position?: { x: number; y: number } }; players?: Array<Record<string, unknown>>; farmItems?: Array<Record<string, unknown>> };
-        snapshot.players?.forEach((player) => this.renderRemotePlayer(player)); snapshot.farmItems?.forEach((item) => this.renderFarmItem(item));
-        if (snapshot.player?.position) this.applyServerPosition(snapshot.player.position.x, snapshot.player.position.y);
-      }
+      if (message.type === 'hello' || message.type === 'snapshot') this.applySnapshot(message.snapshot as Record<string, unknown>);
       if (message.type === 'player_joined') this.renderRemotePlayer(message.player as Record<string, unknown>);
       if (message.type === 'player_moved') { const payload = message as { playerId?: string; player?: Record<string, unknown> }; if (payload.playerId && payload.player) this.renderRemotePlayer(payload.player, payload.playerId); }
       if (message.type === 'player_left' && typeof message.playerId === 'string') this.removeRemotePlayer(message.playerId);
