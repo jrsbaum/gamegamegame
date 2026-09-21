@@ -8,6 +8,7 @@ import {
   playerViewOverridesFor,
   priceFactorFor,
   REGIONAL_EVENTS_MAX_ACTIVE,
+  REGIONAL_UF_CODES,
   validateCatalog,
   worldSpeedFactor,
   type RegionalEventState,
@@ -345,5 +346,30 @@ describe('catálogo de eventos regionais — Região Sul (T12)', () => {
 
   it('nenhuma entrada da região Sul usa a moldura étnica ⚠️ de "cultura gaúcha"/imigração de SC', () => {
     expectNoFlaggedItems(/ga[uú]cho|tropeirismo|imigra[cç][aã]o (alem[ãa]|italiana)/i);
+  });
+});
+
+describe('fidelidade final do catálogo de eventos regionais (T13)', () => {
+  it('todos os 27 estados (26 + DF) têm pelo menos 1 entrada no catálogo', () => {
+    for (const uf of REGIONAL_UF_CODES) {
+      const count = CARACOL_REGIONAL_EVENTS_CATALOG.filter((event) => event.uf === uf).length;
+      expect(count, `UF ${uf} deveria ter >= 1 evento`).toBeGreaterThanOrEqual(1);
+    }
+    expect(REGIONAL_UF_CODES).toHaveLength(27);
+  });
+
+  it('a contagem total de entradas está entre 45 e 55', () => {
+    expect(CARACOL_REGIONAL_EVENTS_CATALOG.length).toBeGreaterThanOrEqual(45);
+    expect(CARACOL_REGIONAL_EVENTS_CATALOG.length).toBeLessThanOrEqual(55);
+  });
+
+  it('nenhuma entrada de nenhuma região referencia os itens marcados ⚠️ no material de referência', () => {
+    expectNoFlaggedItems(
+      /quilombo|palmares|catucá|conceição das crioulas|anna eseru|indígena|ga[uú]cho|tropeirismo|imigra[cç][aã]o (alem[ãa]|italiana)/i,
+    );
+  });
+
+  it('o catálogo inteiro passa validateCatalog() sem lançar', () => {
+    expect(() => validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)).not.toThrow();
   });
 });

@@ -488,9 +488,14 @@ export const CARACOL_REGIONAL_EVENTS_CATALOG: CaracolRegionalEventDefinition[] =
     id: 'sp-ilha-de-calor-urbana',
     uf: 'SP',
     nome: 'Ilha de Calor Urbana',
-    perfil: 'sazonal',
+    // "quase estrutural" mas "liga e desliga em blocos de 2-4h" (prosa) ->
+    // raro/cíclico com chance alta, não sazonal permanente (sazonal com
+    // ALL_MONTHS ficaria ativo o ano inteiro sem nunca desligar, o que
+    // contradiz a própria descrição do evento)
+    perfil: 'raro',
     mesesElegiveis: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
-    duracaoMs: null,
+    chancePorHoraNaJanela: 0.3,
+    duracaoMs: 3 * HORA_MS, // meio da faixa 2-4h
     jogador: { tipo: 'precoConta', multiplicador: 1.15 }, // meio da faixa 1.1-1.2
   },
   {

@@ -429,10 +429,10 @@ confirma ausência total de itens ⚠️ no catálogo inteiro.
 - Skill: NONE
 
 **Done when**:
-- [ ] Todos os 27 estados (26 + DF) têm pelo menos 1 entrada no catálogo — REGCLIM-09, asserido iterando `brazilianCities` UFs únicas contra `CARACOL_REGIONAL_EVENTS_CATALOG` em `tests/caracol-regional-events.test.ts`
-- [ ] A contagem total de entradas está entre 45 e 55 (a proposta é "~50", não um número exato) — REGCLIM-09, `expect(CARACOL_REGIONAL_EVENTS_CATALOG.length).toBeGreaterThanOrEqual(45)` e `.toBeLessThanOrEqual(55)` em `tests/caracol-regional-events.test.ts`
-- [ ] Nenhuma entrada de nenhuma região referencia os itens marcados ⚠️ no material de referência — REGCLIM-10, `grep -iE "quilombo|indígena|anna eseru|gaúcho|tropeirismo|imigração (alemã|italiana)" shared/caracol-regional-events.ts` não encontra nada, checado em `tests/caracol-regional-events.test.ts`
-- [ ] Gate check passa: `npm run typecheck && npx vitest run` (gate de build, fecha a feature)
+- [x] Todos os 27 estados (26 + DF) têm pelo menos 1 entrada no catálogo — REGCLIM-09, asserido iterando `brazilianCities` UFs únicas contra `CARACOL_REGIONAL_EVENTS_CATALOG` em `tests/caracol-regional-events.test.ts`
+- [x] A contagem total de entradas está entre 45 e 55 (a proposta é "~50", não um número exato) — REGCLIM-09, `expect(CARACOL_REGIONAL_EVENTS_CATALOG.length).toBeGreaterThanOrEqual(45)` e `.toBeLessThanOrEqual(55)` em `tests/caracol-regional-events.test.ts`
+- [x] Nenhuma entrada de nenhuma região referencia os itens marcados ⚠️ no material de referência — REGCLIM-10, `grep -iE "quilombo|indígena|anna eseru|gaúcho|tropeirismo|imigração (alemã|italiana)" shared/caracol-regional-events.ts` não encontra nada, checado em `tests/caracol-regional-events.test.ts`
+- [x] Gate check passa: `npm run typecheck && npx vitest run` (gate de build, fecha a feature) (SPEC_DEVIATION: `npx vitest run` sem filtro também roda `lafarmer/apps/server/src/*.test.ts`, um subprojeto separado e não relacionado ao Caracol, que já falhava antes desta feature por dependência não instalada — 441/441 testes do projeto do Caracol/raiz passam; os 2 arquivos de teste que falham são do `lafarmer`)
 
 **Tests**: unit
 **Gate**: build
