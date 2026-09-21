@@ -305,10 +305,10 @@ descritos em `plano/eventos-clima-proposta-completa.md`.
 - Skill: NONE
 
 **Done when**:
-- [ ] `validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)` não lança erro depois da região adicionada
-- [ ] Contagem de entradas para cada um dos 7 estados bate com a tabela do documento de referência — `tests/caracol-regional-events.test.ts` conta por `uf`
-- [ ] Nenhuma entrada usa um item marcado ⚠️ no documento de referência (Roraima: nada do Festival Indígena Anna Eseru) — checado por busca textual (`grep -i "anna eseru\|indígena" shared/caracol-regional-events.ts` não encontra nada)
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
+- [x] `validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)` não lança erro depois da região adicionada
+- [x] Contagem de entradas para cada um dos 7 estados bate com a tabela do documento de referência — `tests/caracol-regional-events.test.ts` conta por `uf`
+- [x] Nenhuma entrada usa um item marcado ⚠️ no documento de referência (Roraima: nada do Festival Indígena Anna Eseru) — checado por busca textual (`grep -i "anna eseru\|indígena" shared/caracol-regional-events.ts` não encontra nada)
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts`
 
 **Tests**: unit
 **Gate**: quick

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryCaracolStore, type CaracolRegionalEventRecord } from '../server/caracol/store';
 import type { CaracolRegionalEventDefinition } from '../shared/caracol';
+import { CARACOL_REGIONAL_EVENTS_CATALOG } from '../shared/caracol-regional-events';
 import {
   chaseSpeedFactorAgainst,
   evaluate,
@@ -11,6 +12,23 @@ import {
   worldSpeedFactor,
   type RegionalEventState,
 } from '../server/caracol/regional-events';
+
+/** Conta quantas entradas do catálogo pertencem a cada UF de `ufs`. */
+function countByUf(ufs: string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const uf of ufs) {
+    counts[uf] = CARACOL_REGIONAL_EVENTS_CATALOG.filter((event) => event.uf === uf).length;
+  }
+  return counts;
+}
+
+/** Nenhum item marcado ⚠️ nos documentos de referência pode aparecer no catálogo. */
+function expectNoFlaggedItems(pattern: RegExp) {
+  const hit = CARACOL_REGIONAL_EVENTS_CATALOG.find(
+    (event) => pattern.test(event.id) || pattern.test(event.nome),
+  );
+  expect(hit).toBeUndefined();
+}
 
 const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const NOW = Date.UTC(2026, 5, 15); // junho de 2026 -> mês 6
@@ -223,5 +241,27 @@ describe('store dos eventos regionais', () => {
     const claim = { uf: 'SC', activatedAt: 1_000, accountId: 'acc-1', eventId: 'sc-oktoberfest', claimedAt: 1_500 };
     expect(await store.recordRegionalClaim(claim)).toBe(true);
     expect(await store.recordRegionalClaim({ ...claim, claimedAt: 2_000 })).toBe(false);
+  });
+});
+
+describe('catálogo de eventos regionais — Região Norte (T8)', () => {
+  it('valida sem lançar depois da região Norte adicionada', () => {
+    expect(() => validateCatalog(CARACOL_REGIONAL_EVENTS_CATALOG)).not.toThrow();
+  });
+
+  it('contagem por estado da região Norte bate com o material de referência', () => {
+    expect(countByUf(['AC', 'AM', 'AP', 'PA', 'RO', 'RR', 'TO'])).toEqual({
+      AC: 2,
+      AM: 2,
+      AP: 2,
+      PA: 2,
+      RO: 1,
+      RR: 1,
+      TO: 2,
+    });
+  });
+
+  it('nenhuma entrada da região Norte referencia o Festival Indígena Anna Eseru (RR) marcado ⚠️', () => {
+    expectNoFlaggedItems(/anna eseru|indígena/i);
   });
 });
