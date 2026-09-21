@@ -12,7 +12,8 @@
     "start": "node dist-server/server/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.server.json"
+    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.server.json",
+    "splash:caracol": "tsx --tsconfig tsconfig.app.json scripts/render-caracol-splash.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

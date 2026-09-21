@@ -1,6 +1,10 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // Sem isto o vitest compila o JSX para React.createElement e um teste que
+  // renderiza um componente .tsx falha com "React is not defined". O
+  // tsconfig.json da raiz não diz nada sobre JSX; quem sabe é o tsconfig.app.json.
+  esbuild: { jsx: 'automatic' },
   test: {
     // Os testes de integração sobem um servidor Socket.IO de verdade e trocam
     // eventos por rede local. Sob contenção de CPU o round-trip passa dos 5s
