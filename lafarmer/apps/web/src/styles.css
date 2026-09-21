@@ -81,16 +81,14 @@ button, input { font: inherit; } button { cursor: pointer; } button:focus-visibl
 /* Cartografia do vale: o mapa é uma superfície navegável, não uma lista de cartões. */
 .onboarding-world-panel { background: linear-gradient(145deg, #fffdf7 0%, #fbf4df 100%); }
 .onboarding-progress span.done { color: #315f4b; background: #dcead0; }
-.world-map { position: relative; min-height: 320px; margin: 24px 0 16px; overflow: hidden; border: 1px solid rgba(23,63,53,.16); border-radius: 20px; background: radial-gradient(circle at 50% 42%, rgba(255,253,247,.88), transparent 35%), #d9e6cf; box-shadow: inset 0 0 0 9px rgba(255,253,247,.22); }
-.world-map svg { display: block; width: 100%; height: auto; min-height: 320px; filter: drop-shadow(0 9px 10px rgba(23,63,53,.1)); }
-.world-region { fill: #9fca86; stroke: #4d7c5b; stroke-width: 6; vector-effect: non-scaling-stroke; outline: none; transition: fill .18s ease, opacity .18s ease, stroke .18s ease; }
-.world-region.frontier { fill: #b6d98e; cursor: pointer; }
-.world-region.frontier:hover, .world-region.frontier:focus-visible { fill: #f2b84b; stroke: #173f35; stroke-width: 9; }
-.world-region.selected { fill: #f2b84b; stroke: #173f35; stroke-width: 10; }
-.world-region.occupied { fill: #5f9672; stroke: #315f4b; }
-.world-region.locked { fill: #aab7a6; stroke: #87968a; stroke-dasharray: 8 8; opacity: .55; }
+.world-map { position: relative; min-height: 320px; margin: 24px 0 16px; overflow: hidden; border: 1px solid rgba(23,63,53,.2); border-radius: 20px; background: #9bc9c7; box-shadow: inset 0 0 0 9px rgba(255,253,247,.22), 0 15px 35px rgba(23,63,53,.08); }
+.world-map-canvas { display: grid; min-height: 320px; aspect-ratio: 1120 / 950; background: #9bc9c7; }
+.world-map-canvas canvas { display: block; width: 100% !important; height: 100% !important; border-radius: 15px; filter: saturate(.93) contrast(.98); }
+.map-region-accessibility { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+.map-region-accessibility button { border: 0; }
+.map-region-accessibility button:focus { position: fixed; z-index: 20; left: 16px; top: 16px; width: auto; height: auto; padding: 8px 12px; overflow: visible; clip: auto; clip-path: none; border-radius: 8px; color: #fffdf7; background: #173f35; font: inherit; white-space: normal; }
 .map-legend { position: absolute; right: 14px; bottom: 12px; display: flex; gap: 12px; flex-wrap: wrap; padding: 7px 10px; border-radius: 10px; color: #315f4b; background: rgba(255,253,247,.88); font-size: .66rem; }
 .legend-dot { display: inline-block; width: 9px; height: 9px; margin-right: 4px; border-radius: 50%; background: #b6d98e; }.legend-dot.occupied { background: #5f9672; }.legend-dot.locked { background: #aab7a6; }
 .map-callout { display: grid; gap: 3px; margin: 12px 0; padding: 13px 15px; border-left: 3px solid #f2b84b; color: #527064; background: rgba(244,236,213,.7); font-size: .8rem; }.map-callout strong { color: #173f35; }
 .world-choice-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(210px, .55fr); gap: 16px; align-items: start; }.world-choice-layout .world-map { margin: 0; }.region-detail { min-height: 230px; padding: 19px; border: 1px solid rgba(23,63,53,.14); border-radius: 15px; color: #315f4b; background: rgba(255,253,247,.72); }.region-detail h3 { margin: 3px 0 10px; color: #173f35; font-family: Georgia, serif; font-size: 1.4rem; }.region-detail p { font-size: .82rem; line-height: 1.5; }.region-detail dl { display: grid; gap: 9px; margin-top: 18px; }.region-detail dl div { display: flex; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(23,63,53,.11); }.region-detail dt { color: #789083; font-size: .7rem; }.region-detail dd { margin: 0; color: #173f35; font-size: .76rem; font-weight: 800; text-align: right; }
-@media (max-width: 760px) { .world-choice-layout { grid-template-columns: 1fr; }.world-map, .world-map svg { min-height: 260px; }.map-legend { position: static; border-radius: 0; }.region-detail { min-height: 0; } }
+@media (max-width: 760px) { .world-choice-layout { grid-template-columns: 1fr; }.world-map, .world-map-canvas { min-height: 260px; }.map-legend { position: static; border-radius: 0; }.region-detail { min-height: 0; } }

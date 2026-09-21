@@ -1,13 +1,14 @@
 import Phaser from 'phaser';
 import { hairs, outfits, type HairId, type OutfitId } from '@lafarmer/content-client';
 import { createGame } from './game';
+import { createMapPreview } from './map-preview';
 import { buyListing, buildStructure, buyOriginOffer, createListing, getLandOptions, getMarket, getMe, getOriginShop, getWorldOverview, login, register, reserveRegion, RealtimeClient, updateProfile, type LandOption, type PlayerProfile, type WorldOverviewRegion } from './network';
 import './styles.css';
 
 type AuthMode = 'login' | 'create'; type Screen = 'auth' | 'confirm' | 'onboarding' | 'game';
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const realtime = new RealtimeClient();
-let game: Phaser.Game | undefined; let mode: AuthMode = 'login'; let screen: Screen = 'auth';
+let game: Phaser.Game | undefined; let mapPreviewGame: Phaser.Game | undefined; let mode: AuthMode = 'login'; let screen: Screen = 'auth';
 let draft = { nick: '', password: '' }; let profile: PlayerProfile = { nick: '', name: '', farmName: '', specialization: null, plotId: '', outfit: 'forest', hair: 'short' }; let coins = 1000; let inventory: Record<string, number> = {};
 let authToken = '';
 let landOptions: LandOption[] = [];
@@ -17,7 +18,7 @@ let onboardingStep = 1;
 let worldOverview: WorldOverviewRegion[] = [];
 
 function render(): void {
-  if (screen === 'game') { renderGame(); return; }
+  if (screen === 'game') { mapPreviewGame?.destroy(true); mapPreviewGame = undefined; renderGame(); return; }
   game?.destroy(true); game = undefined; root.innerHTML = '<div class="app-shell"></div>';
   const shell = root.firstElementChild as HTMLDivElement;
   if (screen === 'auth') renderAuth(shell); if (screen === 'confirm') renderConfirm(shell); if (screen === 'onboarding') renderOnboarding(shell);
@@ -67,10 +68,13 @@ function renderOnboardingLegacy2(shell: HTMLDivElement): void {
 }
 
 function renderOnboarding(shell: HTMLDivElement): void {
+  mapPreviewGame?.destroy(true); mapPreviewGame = undefined;
   const steps = ['Conheça o mundo', 'Escolha onde morar', 'Sua especialização', 'Crie sua identidade'];
   const selected = worldOverview.find((region) => region.id === selectedLandId);
   const selectable = (region: WorldOverviewRegion) => region.status === 'frontier' && (onboardingStep === 2 || !selectedLandId);
-  const map = worldOverview.length ? `<div class="world-map" role="group" aria-label="Mapa-múndi do vale"><svg viewBox="0 0 1120 950" role="img" aria-label="Regiões do vale">${worldOverview.map((region) => `<path class="world-region ${region.status} ${selectedLandId === region.id ? 'selected' : ''}" d="M ${region.polygon.map(([x, y]) => `${x} ${y}`).join(' L ')} Z" data-region="${escapeHtml(region.id)}" tabindex="${selectable(region) ? '0' : '-1'}" aria-label="${escapeHtml(region.name)} · ${region.status === 'locked' ? 'bloqueada' : region.status === 'occupied' ? `ocupada por ${region.occupiedBy || 'outro jogador'}` : 'disponível'}"></path>`).join('')}</svg><div class="map-legend"><span><i class="legend-dot available"></i> fronteira disponível</span><span><i class="legend-dot occupied"></i> ocupada</span><span><i class="legend-dot locked"></i> bloqueada</span></div></div>` : '<div class="world-map loading-copy">Desenhando a cartografia do vale…</div>';
+  const choose = (id: string) => { if (!worldOverview.find((region) => region.id === id && region.status === 'frontier')) return; selectedLandId = id; render(); };
+  const regionButtons = worldOverview.map((region) => `<button type="button" class="world-region-access ${region.status}" data-region="${escapeHtml(region.id)}" ${selectable(region) ? '' : 'disabled'} aria-pressed="${selectedLandId === region.id}" aria-label="${escapeHtml(region.name)} · ${region.status === 'locked' ? 'bloqueada' : region.status === 'occupied' ? `ocupada por ${region.occupiedBy || 'outro jogador'}` : 'disponível'}">${escapeHtml(region.name)}</button>`).join('');
+  const map = worldOverview.length ? `<div class="world-map" role="group" aria-label="Mapa-múndi do vale"><div id="world-map-canvas" class="world-map-canvas" role="img" aria-label="Mapa contínuo do vale com rios, relevo e regiões"></div><div class="map-region-accessibility" aria-label="Regiões do mapa">${regionButtons}</div><div class="map-legend"><span><i class="legend-dot available"></i> fronteira disponível</span><span><i class="legend-dot occupied"></i> ocupada</span><span><i class="legend-dot locked"></i> bloqueada</span></div></div>` : '<div class="world-map loading-copy">Desenhando a cartografia do vale…</div>';
   const content = onboardingStep === 1 ? `<p>O mundo é grande e permanente. As regiões ocupadas continuam visíveis; novas terras nascem sempre pela fronteira.</p>${map}<div class="map-callout"><strong>Primeiro passo</strong><span>Veja os cinco terrenos iniciais e como eles se conectam.</span></div>`
     : onboardingStep === 2 ? `<p>Escolha uma das regiões destacadas. Cada uma tem uma única porteira, ponte ou passagem autorizada para a vizinhança.</p><div class="world-choice-layout">${map}<aside class="region-detail"><span class="eyebrow">fronteira atual</span><h3>${selected ? escapeHtml(selected.name) : 'Escolha uma região'}</h3><p>${selected ? escapeHtml(selected.summary) : 'Clique numa área colorida do mapa para ver o bioma e a conexão.'}</p>${selected ? `<dl><div><dt>Bioma</dt><dd>${escapeHtml(selected.biome)}</dd></div><div><dt>Recursos</dt><dd>${escapeHtml(selected.feature)}</dd></div><div><dt>Entrada</dt><dd>${selected.connectionId ? 'conexão autorizada' : 'primeiro assentamento'}</dd></div></dl>` : ''}</aside></div>`
     : onboardingStep === 3 ? `<p>A fazenda principal começa com uma especialização exclusiva. Você pode trocar e vender itens no Mercadinho, mas não iniciar outra produção.</p><div class="specialization-options"><button type="button" class="specialization-card fruits" data-specialization="fruits" aria-pressed="${selectedSpecialization === 'fruits'}"><strong>Frutas</strong><span>Mudas e sementes de frutas na Loja do Vale.</span></button><button type="button" class="specialization-card vegetables" data-specialization="vegetables" aria-pressed="${selectedSpecialization === 'vegetables'}"><strong>Legumes</strong><span>Sementes de legumes e ciclos rápidos.</span></button><button type="button" class="specialization-card dinosaurs" data-specialization="dinosaurs" aria-pressed="${selectedSpecialization === 'dinosaurs'}"><strong>Dinossauros</strong><span>Ovos, fósseis e recinto de incubação.</span></button></div>`
@@ -80,8 +84,9 @@ function renderOnboarding(shell: HTMLDivElement): void {
   shell.querySelector<HTMLInputElement>('#farm-name')?.addEventListener('input', (event) => { profile.farmName = (event.target as HTMLInputElement).value; });
   shell.querySelector<HTMLInputElement>('#character-name')?.addEventListener('input', (event) => { profile.name = (event.target as HTMLInputElement).value; });
   if (onboardingStep === 1 && !worldOverview.length) void Promise.all([getWorldOverview(authToken), getLandOptions(authToken)]).then(([overview, options]) => { worldOverview = overview.regions; landOptions = options.options; render(); }).catch(() => { error.textContent = 'Não foi possível carregar o mapa agora.'; });
-  const choose = (id: string) => { if (!worldOverview.find((region) => region.id === id && region.status === 'frontier')) return; selectedLandId = id; render(); };
-  shell.querySelectorAll<SVGPathElement>('[data-region]').forEach((element) => { element.addEventListener('click', () => { if (onboardingStep === 2) choose(element.dataset.region || ''); }); element.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (onboardingStep === 2) choose(element.dataset.region || ''); } }); });
+  const canvas = shell.querySelector<HTMLDivElement>('#world-map-canvas');
+  if (canvas) mapPreviewGame = createMapPreview(canvas, { regions: worldOverview, selectedId: selectedLandId, interactive: onboardingStep === 2, onSelect: choose });
+  shell.querySelectorAll<HTMLButtonElement>('[data-region]').forEach((element) => element.addEventListener('click', () => { if (onboardingStep === 2) choose(element.dataset.region || ''); }));
   shell.querySelectorAll<HTMLButtonElement>('[data-specialization]').forEach((button) => button.addEventListener('click', () => { selectedSpecialization = button.dataset.specialization as NonNullable<PlayerProfile['specialization']>; render(); }));
   shell.querySelectorAll<HTMLButtonElement>('[data-outfit]').forEach((button) => button.addEventListener('click', () => { profile.outfit = button.dataset.outfit as PlayerProfile['outfit']; render(); }));
   shell.querySelectorAll<HTMLButtonElement>('[data-hair]').forEach((button) => button.addEventListener('click', () => { profile.hair = button.dataset.hair as PlayerProfile['hair']; render(); }));
