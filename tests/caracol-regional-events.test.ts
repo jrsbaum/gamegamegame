@@ -90,6 +90,20 @@ describe('motor genérico de eventos regionais', () => {
     expect(plan.deactivations).toHaveLength(0);
   });
 
+  it('não interrompe um evento raro ainda válido, mesmo com outro candidato elegível (perfil raro, não só sazonal)', () => {
+    const active = raroEvento('SP', { id: 'sp-atual' });
+    const outroElegivel = raroEvento('SP', { id: 'sp-outro', chancePorHoraNaJanela: 1_000_000 });
+    const catalog = [active, outroElegivel];
+    const activeByUf = new Map<string, RegionalEventState>([
+      ['SP', { activeEventId: 'sp-atual', activatedAt: NOW - 1_000, expiresAt: NOW + 60_000, lastActivatedAt: NOW - 1_000 }],
+    ]);
+    const plan = evaluate(catalog, NOW, activeByUf, () => 0);
+    expect(plan.nextByUf.get('SP')?.activeEventId).toBe('sp-atual');
+    expect(plan.nextByUf.get('SP')?.expiresAt).toBe(NOW + 60_000);
+    expect(plan.activations).toHaveLength(0);
+    expect(plan.deactivations).toHaveLength(0);
+  });
+
   it('expira um evento raro assim que sua duração passa e o estado some da lista de ativos', () => {
     const event = raroEvento('SP');
     const activeByUf = new Map<string, RegionalEventState>([
