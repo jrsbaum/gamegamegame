@@ -184,12 +184,13 @@ describe("LaFarmer server", () => {
   it("keeps online and offline wallet accrual on the same minute boundary", async () => {
     let now = 1_700_000_000_000;
     const repositories = createInMemoryRepositories();
-    await repositories.players.insert({ id: "wallet-player", accountId: "wallet-account", name: "Wallet", farmName: "", specialization: null, plot: null, appearance: { clothing: "forest", hair: "short" }, coins: 0, inventory: {}, lastActiveAt: now, position: { x: 5, y: 5 } });
-    const game = new GameService({ players: repositories.players, farm: repositories.farm, market: repositories.market }, () => now);
+    await repositories.players.insert({ id: "wallet-player", accountId: "wallet-account", name: "Wallet", farmName: "", specialization: null, plot: null, appearance: { clothing: "forest", hair: "short" }, coins: 0, inventory: {}, inventoryQualities: {}, inventoryCapacity: 50, lastActiveAt: now, position: { x: 5, y: 5 } });
+    const game = new GameService({ players: repositories.players, farm: repositories.farm, market: repositories.market, wallet: repositories.wallet }, () => now);
+    game.markOnlineActivity("wallet-player");
     now += 60_000;
-    expect((await game.onlineTick("wallet-player")).coins).toBe(10);
+    expect((await game.onlineTick("wallet-player")).coins).toBe(2);
     now += 60_000;
-    expect((await game.snapshot("wallet-player")).player.coins).toBe(11);
+    expect((await game.snapshot("wallet-player")).player.coins).toBe(2);
   });
 
   it("plants, persists a farm item and completes a player-to-player market trade", async () => {

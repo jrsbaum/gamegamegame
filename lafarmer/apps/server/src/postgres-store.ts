@@ -316,6 +316,7 @@ type PlayerRow = QueryResultRow & {
 };
 
 const playerSelect = `SELECT id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y FROM players`;
+const playerColumns = `id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y`;
 const farmSelect = `SELECT id, owner_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y FROM farm_items`;
 const marketSelect = `SELECT id, seller_id, seller_name, content_id, quantity, unit_price, quality, created_at FROM market_listings`;
 

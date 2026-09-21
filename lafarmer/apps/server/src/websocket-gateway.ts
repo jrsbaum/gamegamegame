@@ -11,6 +11,7 @@ type Connection = { client: Client; onlineTimer: ReturnType<typeof setInterval> 
 export function attachWebSocketGateway(server: Server, auth: AuthService, game: GameService): { close: () => Promise<void> } {
   const wss = new WebSocketServer({ noServer: true });
   const connections = new Map<string, Connection>();
+  const clients = new Map<string, Client>();
   const messageQueues = new Map<Client, Promise<void>>();
 
   server.on("upgrade", (request, socket, head) => {
@@ -34,7 +35,6 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     client.playerId = playerId;
     clients.set(playerId, client);
     game.markOnlineActivity(playerId);
-    void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
     const onlineTimer = setInterval(() => void game.onlineTick(playerId).then((player) => send(client, { type: "wallet.updated", payload: { coins: player.coins } })), ONLINE_TICK_INTERVAL_MS);
     connections.set(playerId, { client, onlineTimer });
     void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
@@ -49,6 +49,7 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
       messageQueues.delete(client);
       if (connections.get(playerId)?.client === client) {
         connections.delete(playerId);
+        clients.delete(playerId);
         broadcastExcept(playerId, { type: "player_left", playerId });
       }
     });

@@ -45,8 +45,10 @@ export interface FarmRepository {
 export interface MarketRepository {
   listActive(): Promise<MarketListing[]>;
   findById(id: string): Promise<MarketListing | undefined>;
-  createListing(listing: MarketListing): Promise<MarketListingResult>;
-  purchaseListing(listingId: string, buyerId: string, idempotencyKey: string): Promise<MarketPurchaseResult>;
+  insert(listing: MarketListing): Promise<void>;
+  delete(id: string): Promise<void>;
+  createListing?(listing: MarketListing): Promise<MarketListingResult>;
+  purchaseListing?(listingId: string, buyerId: string, idempotencyKey: string): Promise<MarketPurchaseResult>;
 }
 
 export interface WalletRepository {

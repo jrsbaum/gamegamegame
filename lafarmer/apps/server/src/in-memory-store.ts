@@ -1,5 +1,5 @@
 import type { Account, FarmItem, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
-import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, WalletRepository } from "./repositories.js";
+import type { AccountRepository, FarmRepository, MarketListingResult, MarketPurchaseResult, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, WalletRepository } from "./repositories.js";
 
 class InMemoryAccounts implements AccountRepository {
   private readonly byId = new Map<string, Account>();
@@ -135,6 +135,9 @@ class InMemoryMarket implements MarketRepository {
     });
   }
 
+  async insert(listing: MarketListing): Promise<void> { this.listings.set(listing.id, listing); }
+  async delete(id: string): Promise<void> { this.listings.delete(id); }
+
   private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
     const previous = this.queue;
     let release!: () => void;
@@ -156,9 +159,9 @@ export function createInMemoryRepositories(): RepositoryBundle {
   return {
     accounts: new InMemoryAccounts(),
     sessions: new InMemorySessions(),
-    players: new InMemoryPlayers(),
+    players,
     farm: new InMemoryFarm(),
-    market: new InMemoryMarket(),
+    market: new InMemoryMarket(players),
     wallet: new InMemoryWallet()
   };
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   getContentDefinition, ONLINE_COINS_PER_HOUR, OFFLINE_COINS_PER_HOUR,
-  isKnownItemId, type ContentDefinition, type Quality
+  isKnownItemId, isWorldTileWalkable, WORLD_HEIGHT_TILES, WORLD_WIDTH_TILES, type ContentDefinition, type Quality
 } from "@lafarmer/content";
 import type { Direction, FarmItem, FarmItemView, MarketListing, MoveCommand, MoveResult, PlayerState, WalletEntry, WorldSnapshot } from "./domain.js";
 import type { FarmRepository, MarketRepository, PlayerRepository, WalletRepository } from "./repositories.js";
@@ -25,6 +25,8 @@ export class GameService {
   private readonly pendingPersist = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly onlineActivityUntil = new Map<string, number>();
   private readonly offlineProgress = new Map<string, OfflineProgress>();
+  private readonly marketReceipts = new Map<string, { listing: MarketListing; coins: number; inventory: Record<string, number>; replayed: boolean }>();
+  private marketQueue = Promise.resolve();
 
   constructor(private readonly repositories: GameRepositories, private readonly now: () => number = () => Date.now()) {}
 
@@ -179,7 +181,15 @@ export class GameService {
     return listing;
   }
 
-  async buyListing(playerId: string, listingId: string): Promise<{ listing: MarketListing; coins: number; inventory: Record<string, number> }> {
+  async buyListing(playerId: string, listingId: string, idempotencyKey?: string): Promise<{ listing: MarketListing; coins: number; inventory: Record<string, number>; replayed?: boolean }> {
+    const receiptKey = idempotencyKey ? `${playerId}:${idempotencyKey}` : undefined;
+    if (receiptKey && this.marketReceipts.has(receiptKey)) return { ...this.marketReceipts.get(receiptKey)!, replayed: true };
+    const previous = this.marketQueue;
+    let release!: () => void;
+    this.marketQueue = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      if (receiptKey && this.marketReceipts.has(receiptKey)) return { ...this.marketReceipts.get(receiptKey)!, replayed: true };
     const listing = await this.repositories.market.findById(listingId);
     if (!listing) throw new GameError("listing_not_found");
     if (listing.sellerId === playerId) throw new GameError("cannot_buy_own_listing");
@@ -194,7 +204,10 @@ export class GameService {
     await this.savePlayer(creditedSeller);
     await this.recordWallet(creditedSeller, total, "market_sale", listing.id);
     await this.repositories.market.delete(listing.id);
-    return { listing, coins: buyerInventory.coins, inventory: buyerInventory.inventory };
+    const result = { listing, coins: buyerInventory.coins, inventory: buyerInventory.inventory, replayed: false };
+    if (receiptKey) this.marketReceipts.set(receiptKey, result);
+    return result;
+    } finally { release(); }
   }
 
   private async materializeOwner(player: PlayerState): Promise<{ completedCycles: number; blockedByCapacity: number }> {
@@ -350,7 +363,7 @@ function pickAvailableQuality(player: PlayerState, itemId: string): Quality {
 
 function freeInventorySlots(player: PlayerState): number { return Math.max(0, player.inventoryCapacity - inventoryCount(player.inventory)); }
 function inventoryCount(inventory: Record<string, number>): number { return Object.values(inventory).reduce((sum, quantity) => sum + quantity, 0); }
-function validPosition(x: number, y: number, player: PlayerState): boolean { return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x <= 100 && y >= 0 && y <= 100 && Math.abs(x - player.position.x) <= 8 && Math.abs(y - player.position.y) <= 8 && x <= 25; }
+function validPosition(x: number, y: number, player: PlayerState): boolean { return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x < WORLD_WIDTH_TILES && y >= 0 && y < WORLD_HEIGHT_TILES && Math.abs(x - player.position.x) <= 8 && Math.abs(y - player.position.y) <= 8 && isWorldTileWalkable(Math.round(x), Math.round(y)); }
 function isDirection(value: string): value is Direction { return value === "up" || value === "down" || value === "left" || value === "right"; }
 function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }
 
