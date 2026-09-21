@@ -130,7 +130,7 @@ export class WorldScene extends Phaser.Scene {
     const worldPosition = this.gridToWorld(Number(position.x ?? 0), Number(position.y ?? 0));
     const body = this.add.graphics().setDepth(90).setPosition(worldPosition.x, worldPosition.y);
     const appearance = raw.appearance as { clothing?: PlayerProfile['outfit']; hair?: PlayerProfile['hair'] } | undefined;
-    this.drawPlayer(body, { nick: String(raw.name ?? 'vizinho'), name: String(raw.name ?? 'vizinho'), outfit: appearance?.clothing ?? 'forest', hair: appearance?.hair ?? 'short' });
+    this.drawPlayer(body, { nick: String(raw.name ?? 'vizinho'), name: String(raw.name ?? 'vizinho'), farmName: '', specialization: null, plotId: '', outfit: appearance?.clothing ?? 'forest', hair: appearance?.hair ?? 'short' });
     const tag = this.label(String(raw.name ?? 'vizinho'), body.x, body.y - 62, 10, palette.cream).setBackgroundColor(palette.forest);
     this.remotePlayers.set(id, { body, tag });
   }
