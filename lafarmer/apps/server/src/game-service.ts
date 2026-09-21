@@ -142,11 +142,18 @@ export class GameService {
     if (!spec) throw new GameError("invalid_structure");
     const regionId = player.currentRegionId ?? player.homeRegionId;
     if (!regionId) throw new GameError("region_not_found");
-    const x = Math.round(input.x ?? player.position.x); const y = Math.round(input.y ?? player.position.y);
-    if (Math.abs(x - player.position.x) > 8 || Math.abs(y - player.position.y) > 8) throw new GameError("invalid_position");
-    for (let yy = y; yy < y + spec.height; yy++) for (let xx = x; xx < x + spec.width; xx++) if (!isWorldTileWalkable(xx, yy)) throw new GameError("invalid_position");
     const existing = await this.repositories.structures.listByOwnerId(playerId);
-    if (existing.some((structure) => structure.regionId === regionId && rectanglesOverlap(structure, x, y, spec.width, spec.height))) throw new GameError("invalid_structure");
+    const explicitPosition = input.x !== undefined || input.y !== undefined;
+    const candidates = explicitPosition
+      ? [{ x: Math.round(input.x ?? player.position.x), y: Math.round(input.y ?? player.position.y) }]
+      : structureCandidates(player.position.x, player.position.y);
+    const position = candidates.find((candidate) => {
+      if (Math.abs(candidate.x - player.position.x) > 8 || Math.abs(candidate.y - player.position.y) > 8) return false;
+      for (let yy = candidate.y; yy < candidate.y + spec.height; yy++) for (let xx = candidate.x; xx < candidate.x + spec.width; xx++) if (!isWorldTileWalkable(xx, yy)) return false;
+      return !existing.some((structure) => structure.regionId === regionId && rectanglesOverlap(structure, candidate.x, candidate.y, spec.width, spec.height));
+    });
+    if (!position) throw new GameError(explicitPosition ? "invalid_position" : "invalid_structure");
+    const { x, y } = position;
     if (player.coins < spec.cost) throw new GameError("insufficient_coins");
     const structure: FarmStructure = { id: randomUUID(), ownerId: playerId, regionId, type: input.type, footprint: [[x, y], [x + spec.width, y], [x + spec.width, y + spec.height], [x, y + spec.height]], capacity: spec.capacity, cost: spec.cost, state: "built", position: { x: x + Math.floor(spec.width / 2), y: y + Math.floor(spec.height / 2) } };
     await this.repositories.structures.insert(structure);
@@ -427,6 +434,19 @@ function pickAvailableQuality(player: PlayerState, itemId: string): Quality {
 
 function freeInventorySlots(player: PlayerState): number { return Math.max(0, player.inventoryCapacity - inventoryCount(player.inventory)); }
 function inventoryCount(inventory: Record<string, number>): number { return Object.values(inventory).reduce((sum, quantity) => sum + quantity, 0); }
+function structureCandidates(x: number, y: number): Array<{ x: number; y: number }> {
+  const origin = { x: Math.round(x), y: Math.round(y) };
+  const candidates = [origin];
+  for (let radius = 1; radius <= 8; radius += 1) {
+    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+        if (Math.max(Math.abs(offsetX), Math.abs(offsetY)) !== radius) continue;
+        candidates.push({ x: origin.x + offsetX, y: origin.y + offsetY });
+      }
+    }
+  }
+  return candidates;
+}
 function validPosition(x: number, y: number, player: PlayerState): boolean { return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x < WORLD_WIDTH_TILES && y >= 0 && y < WORLD_HEIGHT_TILES && Math.abs(x - player.position.x) <= 8 && Math.abs(y - player.position.y) <= 8 && isWorldTileWalkable(Math.round(x), Math.round(y)); }
 function insideStructure(structure: FarmStructure, x: number, y: number): boolean {
   const xs = structure.footprint.map((point) => point[0]); const ys = structure.footprint.map((point) => point[1]);
