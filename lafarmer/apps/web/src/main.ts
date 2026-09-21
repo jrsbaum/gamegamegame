@@ -1,14 +1,14 @@
 import Phaser from 'phaser';
 import { hairs, outfits, type HairId, type OutfitId } from '@lafarmer/content-client';
 import { createGame } from './game';
-import { createMapPreview } from './map-preview';
-import { buyListing, buildStructure, buyOriginOffer, createListing, getLandOptions, getMarket, getMe, getOriginShop, getWorldOverview, login, register, reserveRegion, RealtimeClient, updateProfile, type LandOption, type PlayerProfile, type WorldOverviewRegion } from './network';
+import { createMapPreview, updateMapPreviewPresence } from './map-preview';
+import { buyListing, buildStructure, buyOriginOffer, createListing, getLandOptions, getMarket, getMe, getOriginShop, getWorldOverview, login, register, reserveRegion, RealtimeClient, updateProfile, type LandOption, type PlayerProfile, type WorldOverviewRegion, type WorldPresence } from './network';
 import './styles.css';
 
 type AuthMode = 'login' | 'create'; type Screen = 'auth' | 'confirm' | 'onboarding' | 'game';
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const realtime = new RealtimeClient();
-let game: Phaser.Game | undefined; let mapPreviewGame: Phaser.Game | undefined; let mode: AuthMode = 'login'; let screen: Screen = 'auth';
+let game: Phaser.Game | undefined; let mapPreviewGame: Phaser.Game | undefined; let liveWorldMapGame: Phaser.Game | undefined; let mode: AuthMode = 'login'; let screen: Screen = 'auth';
 let draft = { nick: '', password: '' }; let profile: PlayerProfile = { nick: '', name: '', farmName: '', specialization: null, plotId: '', outfit: 'forest', hair: 'short' }; let coins = 1000; let inventory: Record<string, number> = {};
 let authToken = '';
 let landOptions: LandOption[] = [];
@@ -16,9 +16,11 @@ let selectedLandId = '';
 let selectedSpecialization: NonNullable<PlayerProfile['specialization']> = 'vegetables';
 let onboardingStep = 1;
 let worldOverview: WorldOverviewRegion[] = [];
+let playerId = ''; let currentRegionId = ''; let livePresence: WorldPresence[] = [];
 
 function render(): void {
   if (screen === 'game') { mapPreviewGame?.destroy(true); mapPreviewGame = undefined; renderGame(); return; }
+  liveWorldMapGame?.destroy(true); liveWorldMapGame = undefined;
   game?.destroy(true); game = undefined; root.innerHTML = '<div class="app-shell"></div>';
   const shell = root.firstElementChild as HTMLDivElement;
   if (screen === 'auth') renderAuth(shell); if (screen === 'confirm') renderConfirm(shell); if (screen === 'onboarding') renderOnboarding(shell);
@@ -34,7 +36,7 @@ function renderAuth(shell: HTMLDivElement): void {
     draft = { nick, password }; error.textContent = 'Conectando ao vale…';
     try {
       const result = mode === 'create' ? await register(nick, password) : await login(nick, password);
-      authToken = result.token; profile.nick = nick; profile.name = result.player.name; profile.farmName = result.player.farmName || ''; profile.specialization = result.player.specialization; profile.plotId = result.player.plot?.id || ''; profile.outfit = result.player.appearance.clothing; profile.hair = result.player.appearance.hair; selectedLandId = profile.plotId; selectedSpecialization = profile.specialization || 'vegetables'; coins = result.player.coins; screen = 'confirm'; render();
+      authToken = result.token; playerId = result.player.id; currentRegionId = result.player.currentRegionId ?? result.player.homeRegionId ?? result.player.plot?.id ?? ''; profile.nick = nick; profile.name = result.player.name; profile.farmName = result.player.farmName || ''; profile.specialization = result.player.specialization; profile.plotId = result.player.plot?.id || ''; profile.outfit = result.player.appearance.clothing; profile.hair = result.player.appearance.hair; selectedLandId = profile.plotId; selectedSpecialization = profile.specialization || 'vegetables'; coins = result.player.coins; screen = 'confirm'; render();
     } catch (requestError) {
       error.textContent = requestError instanceof Error && requestError.message === 'nick_taken' ? 'Esse nick já está ocupado.' : requestError instanceof Error && requestError.message === 'invalid_nick' ? 'Use de 3 a 20 caracteres, sem espaços. Você pode usar hífen ou underline.' : 'Não foi possível entrar. Confira os dados e o servidor.';
     }
@@ -107,16 +109,16 @@ function renderGame(): void {
       <div class="farm-identity"><span class="farm-mark" aria-hidden="true">✦</span><div><strong>${escapeHtml(profile.farmName || 'Minha fazenda')}</strong><span>${escapeHtml(profile.name)} · ${specializationLabel(profile.specialization)}</span></div></div>
       <div class="resource-tray" aria-label="Recursos"><div class="resource-chip"><span class="resource-icon coin">¢</span><span><small>moedas</small><strong id="coins-value">${coins.toLocaleString('pt-BR')}</strong></span></div><div class="resource-chip"><span class="resource-icon">▦</span><span><small>estoque</small><strong id="inventory-value">${inventoryTotal()}</strong></span></div><div class="resource-chip production-chip"><span class="resource-icon">◒</span><span><small>produção</small><strong id="production-value">0 prontos</strong></span></div><div class="connection-chip"><span id="connection-status" class="live-dot ${realtime.status === 'connected' ? '' : 'offline'}" aria-hidden="true"></span><span id="connection-label">${realtime.status === 'connected' ? 'online' : 'modo local'}</span></div></div>
     </header>
-    <div class="hud-guide"><span class="guide-key">WASD</span><span>andar</span><span class="guide-separator">·</span><span class="guide-key">E</span><span>cuidar ou colher</span></div>
+    <div class="hud-guide"><span class="guide-key">WASD</span><span>andar</span><span class="guide-separator">·</span><span class="guide-key">SPACE</span><span>correr</span><span class="guide-separator">·</span><span class="guide-key">E</span><span>interagir</span></div>
     <div class="hud-actions" aria-label="Ações rápidas"><button id="open-origin-shop" class="action-button action-plant" type="button"><span class="action-icon" aria-hidden="true">✿</span><span><strong>Loja do Vale</strong><small>insumos de origem</small></span></button><button id="build-enclosure" class="action-button" type="button"><span class="action-icon" aria-hidden="true">⌂</span><span><strong>Construir</strong><small>${profile.specialization === 'dinosaurs' ? 'recinto de dino' : 'espaço da fazenda'}</small></span></button><button id="open-market" class="action-button action-market" type="button"><span class="action-icon" aria-hidden="true">♧</span><span><strong>Mercadinho</strong><small>trocar produtos</small></span></button><p id="action-message" role="status" aria-live="polite"></p></div>
-    <div class="touch-controls" aria-label="Controles de movimento"><button type="button" data-direction="up" aria-label="Andar para cima">↑</button><div><button type="button" data-direction="left" aria-label="Andar para a esquerda">←</button><button type="button" data-direction="down" aria-label="Andar para baixo">↓</button><button type="button" data-direction="right" aria-label="Andar para a direita">→</button></div></div><div class="hud-bottom"><span class="interaction-dot" aria-hidden="true"></span><span>Chegue perto de uma produção para ver seu estado.</span></div>
-  </div><section id="market-panel" class="market-panel" hidden aria-label="Mercadinho" aria-modal="true" role="dialog"><div class="market-card"><button id="close-market" class="market-close" type="button" aria-label="Fechar mercadinho">Fechar</button><p class="eyebrow">mercadinho do vale</p><h2>Compre de outros jogadores</h2><p id="market-status" class="hint">Carregando anúncios…</p><div id="market-list" class="market-list"></div></div></section></main>`;
+    <div class="touch-controls" aria-label="Controles de movimento"><button type="button" data-direction="up" aria-label="Andar para cima">↑</button><div><button type="button" data-direction="left" aria-label="Andar para a esquerda">←</button><button type="button" data-direction="down" aria-label="Andar para baixo">↓</button><button type="button" data-direction="right" aria-label="Andar para a direita">→</button></div></div><div class="hud-bottom"><span class="interaction-dot" aria-hidden="true"></span><span id="hud-bottom-message">Chegue perto de uma produção para ver seu estado.</span></div>
+  </div><section id="market-panel" class="market-panel" hidden aria-label="Mercadinho" aria-modal="true" role="dialog"><div class="market-card"><button id="close-market" class="market-close" type="button" aria-label="Fechar mercadinho">Fechar</button><p class="eyebrow">mercadinho do vale</p><h2>Compre de outros jogadores</h2><p id="market-status" class="hint">Carregando anúncios…</p><div id="market-list" class="market-list"></div></div></section><section id="world-map-panel" class="world-map-overlay" hidden aria-label="Mapa do mundo" aria-modal="true" role="dialog"><div class="world-map-dialog"><header class="world-map-header"><div><p class="eyebrow">mapa-múndi ao vivo</p><h2>Seus vizinhos</h2><p>Veja quem está no vale agora e visite pela porteira, ponte ou passagem autorizada.</p></div><button id="close-world-map" class="market-close" type="button">Fechar</button></header><div class="world-map-live-layout"><div id="world-map-live-canvas" class="world-map-live-canvas">Carregando cartografia…</div><aside class="neighbor-rail"><p class="sidebar-label">Vizinhança conectada</p><div id="neighbor-presence-list"></div><p class="neighbor-hint">Para visitar, volte ao terreno e chegue à conexão indicada no mapa.</p></aside></div></div></section></main>`;
   root.insertAdjacentHTML('afterbegin', `<button id="menu-toggle" class="menu-toggle" type="button" aria-expanded="false" aria-controls="game-sidebar"><span aria-hidden="true">☰</span><span>Menu</span></button><div id="sidebar-scrim" class="sidebar-scrim" hidden></div><aside id="game-sidebar" class="game-sidebar" aria-label="Menu lateral" hidden><div class="sidebar-brand"><div><span class="eyebrow">LaFarmer</span><button id="close-sidebar" class="sidebar-close" type="button" aria-label="Fechar menu">×</button></div><strong>${escapeHtml(profile.farmName || 'Minha fazenda')}</strong><small>${specializationLabel(profile.specialization)}</small></div><div class="sidebar-stats"><div><strong id="sidebar-coins">${coins.toLocaleString('pt-BR')}</strong><span>moedas</span></div><div><strong id="sidebar-inventory">${inventoryTotal()}</strong><span>no estoque</span></div></div><p class="sidebar-label">Navegar</p><nav class="sidebar-nav" aria-label="Navegação da fazenda"><button type="button" data-sidebar="farm"><span>⌂</span>Minha fazenda</button><button type="button" data-sidebar="map"><span>◎</span>Mapa do mundo</button><button type="button" data-sidebar="market"><span>♧</span>Mercadinho</button><button type="button" data-sidebar="inventory"><span>▦</span>Inventário</button><button type="button" data-sidebar="wardrobe"><span>✦</span>Guarda-roupa</button></nav><div class="sidebar-note"><span class="interaction-dot" aria-hidden="true"></span><p id="sidebar-message">O mundo continua ativo enquanto você estiver fora.</p></div></aside>`);
   const menu = root.querySelector<HTMLButtonElement>('#menu-toggle')!; const sidebar = root.querySelector<HTMLElement>('#game-sidebar')!; const scrim = root.querySelector<HTMLElement>('#sidebar-scrim')!; const sidebarMessage = root.querySelector<HTMLParagraphElement>('#sidebar-message')!;
   const setMenu = (open: boolean) => { sidebar.hidden = !open; scrim.hidden = !open; menu.classList.toggle('is-open', open); menu.setAttribute('aria-expanded', String(open)); if (open) root.querySelector<HTMLButtonElement>('#close-sidebar')?.focus(); else menu.focus(); };
   menu.addEventListener('click', () => setMenu(sidebar.hidden)); root.querySelector('#close-sidebar')?.addEventListener('click', () => setMenu(false)); scrim.addEventListener('click', () => setMenu(false));
-  root.addEventListener('keydown', (event) => { if (event.key !== 'Escape') return; if (!sidebar.hidden) setMenu(false); const market = root.querySelector<HTMLElement>('#market-panel'); if (market && !market.hidden) { market.hidden = true; root.querySelector<HTMLButtonElement>('#open-market')?.focus(); } });
-  root.querySelectorAll<HTMLButtonElement>('[data-sidebar]').forEach((button) => button.addEventListener('click', () => { const action = button.dataset.sidebar; if (action === 'market') { setMenu(false); openMarketPanel(); } else sidebarMessage.textContent = action === 'farm' ? `${profile.farmName || 'Sua fazenda'} · ${specializationLabel(profile.specialization)}.` : action === 'map' ? 'O mapa global está conectado pela mesma fronteira do seu terreno.' : action === 'inventory' ? `${inventoryTotal()} item(ns) guardado(s). Abra o mercadinho para anunciar uma produção.` : 'O guarda-roupa vai permitir trocar roupa e cabelo sem alterar sua terra.'; }));
+  root.addEventListener('keydown', (event) => { if (event.key !== 'Escape') return; if (!sidebar.hidden) setMenu(false); const market = root.querySelector<HTMLElement>('#market-panel'); if (market && !market.hidden) { market.hidden = true; root.querySelector<HTMLButtonElement>('#open-market')?.focus(); } const map = root.querySelector<HTMLElement>('#world-map-panel'); if (map && !map.hidden) closeWorldMapPanel(); });
+  root.querySelectorAll<HTMLButtonElement>('[data-sidebar]').forEach((button) => button.addEventListener('click', () => { const action = button.dataset.sidebar; if (action === 'market') { setMenu(false); void openMarketPanel(); } else if (action === 'map') { setMenu(false); void openWorldMapPanel(); } else sidebarMessage.textContent = action === 'farm' ? `${profile.farmName || 'Sua fazenda'} · ${specializationLabel(profile.specialization)}.` : action === 'inventory' ? `${inventoryTotal()} item(ns) guardado(s). Abra o mercadinho para anunciar uma produção.` : 'O guarda-roupa vai permitir trocar roupa e cabelo sem alterar sua terra.'; }));
   const gameRoot = root.querySelector<HTMLDivElement>('#game-root')!;
   void realtime.connect(authToken).then((status) => {
     const indicator = root.querySelector<HTMLSpanElement>('#connection-status');
@@ -128,7 +130,43 @@ function renderGame(): void {
   root.querySelector('#build-enclosure')?.addEventListener('click', async () => { try { await buildStructure(authToken, profile.specialization === 'dinosaurs' ? 'dinosaur_enclosure' : profile.specialization === 'fruits' ? 'orchard' : 'field'); const me = await getMe(authToken); coins = me.player.coins; root.querySelectorAll('#coins-value, #sidebar-coins').forEach((target) => { target.textContent = coins.toLocaleString('pt-BR'); }); message('Espaço construído. Agora sua produção tem um lugar próprio.'); } catch (error) { message(error instanceof Error && error.message === 'insufficient_coins' ? 'Você precisa de mais moedas para construir.' : 'Não é possível construir aqui.'); } });
   root.querySelector('#open-market')?.addEventListener('click', () => openMarketPanel());
   root.querySelector('#close-market')?.addEventListener('click', () => { const panel = root.querySelector<HTMLElement>('#market-panel'); if (panel) panel.hidden = true; });
-  game = createGame(gameRoot, { profile, realtime, onCoins: (value) => { coins = value; const target = root.querySelector('#coins-value'); if (target) target.textContent = coins.toLocaleString('pt-BR'); const sideTarget = root.querySelector('#sidebar-coins'); if (sideTarget) sideTarget.textContent = coins.toLocaleString('pt-BR'); }, onInventory: (value) => { inventory = value; const target = root.querySelector('#inventory-value'); if (target) target.textContent = String(inventoryTotal()); const sideTarget = root.querySelector('#sidebar-inventory'); if (sideTarget) sideTarget.textContent = String(inventoryTotal()); }, onProduction: (ready, total) => { const target = root.querySelector('#production-value'); if (target) target.textContent = `${ready} prontos`; target?.setAttribute('aria-label', `${ready} prontos de ${total} em produção`); }, onMarket: () => openMarketPanel() });
+  root.querySelector('#close-world-map')?.addEventListener('click', closeWorldMapPanel);
+  game = createGame(gameRoot, { profile, realtime, onCoins: (value) => { coins = value; const target = root.querySelector('#coins-value'); if (target) target.textContent = coins.toLocaleString('pt-BR'); const sideTarget = root.querySelector('#sidebar-coins'); if (sideTarget) sideTarget.textContent = coins.toLocaleString('pt-BR'); }, onInventory: (value) => { inventory = value; const target = root.querySelector('#inventory-value'); if (target) target.textContent = String(inventoryTotal()); const sideTarget = root.querySelector('#sidebar-inventory'); if (sideTarget) sideTarget.textContent = String(inventoryTotal()); }, onProduction: (ready, total) => { const target = root.querySelector('#production-value'); if (target) target.textContent = `${ready} prontos`; target?.setAttribute('aria-label', `${ready} prontos de ${total} em produção`); }, onMarket: () => openMarketPanel(), onPresence: (presence) => { livePresence = presence; refreshWorldMapPanel(); }, onSnapshot: (snapshot) => { const player = snapshot.player as { id?: string; currentRegionId?: string | null; homeRegionId?: string | null } | undefined; if (player?.id) playerId = player.id; currentRegionId = player?.currentRegionId ?? player?.homeRegionId ?? currentRegionId; const presence = snapshot.presence as WorldPresence[] | undefined; if (presence) livePresence = presence; refreshWorldMapPanel(); }, onConnectionPrompt: (text) => { const target = root.querySelector<HTMLSpanElement>('#hud-bottom-message'); if (target) target.textContent = text || 'Chegue perto de uma produção para ver seu estado.'; } });
+}
+
+function connectedPresence(): WorldPresence[] {
+  const region = worldOverview.find((candidate) => candidate.id === currentRegionId || candidate.id === profile.plotId);
+  const neighborIds = new Set(region?.neighbors ?? []);
+  return livePresence.filter((presence) => presence.id !== playerId && neighborIds.has(presence.currentRegionId ?? presence.homeRegionId ?? ''));
+}
+
+function renderNeighborPresence(): void {
+  const list = root.querySelector<HTMLDivElement>('#neighbor-presence-list'); if (!list) return;
+  const neighbors = connectedPresence();
+  list.innerHTML = neighbors.length ? neighbors.map((person) => `<article class="neighbor-card ${person.online ? 'online' : 'offline'}"><span class="neighbor-avatar outfit-${person.appearance.clothing} hair-${person.appearance.hair}" aria-hidden="true"><i></i></span><div><strong>${escapeHtml(person.name)}</strong><span>${escapeHtml(person.farmName || 'fazenda vizinha')}</span><small>${person.online ? 'online agora' : 'fora do vale'}</small></div></article>`).join('') : '<p class="neighbor-empty">Ainda não há vizinhos conectados à sua fronteira. Quando alguém chegar, o avatar aparece aqui em tempo real.</p>';
+}
+
+async function openWorldMapPanel(): Promise<void> {
+  const panel = root.querySelector<HTMLElement>('#world-map-panel'); if (!panel) return;
+  panel.hidden = false; renderNeighborPresence();
+  if (!worldOverview.length) {
+    const status = root.querySelector<HTMLDivElement>('#world-map-live-canvas'); if (status) status.textContent = 'Carregando cartografia…';
+    try { worldOverview = (await getWorldOverview(authToken)).regions; } catch { if (status) status.textContent = 'Não foi possível carregar o mapa agora.'; return; }
+  }
+  const canvas = root.querySelector<HTMLDivElement>('#world-map-live-canvas'); if (!canvas) return;
+  if (!liveWorldMapGame) liveWorldMapGame = createMapPreview(canvas, { regions: worldOverview, selectedId: currentRegionId || profile.plotId, interactive: false, presence: connectedPresence(), onSelect: () => undefined });
+  else updateMapPreviewPresence(liveWorldMapGame, connectedPresence());
+}
+
+function refreshWorldMapPanel(): void {
+  renderNeighborPresence();
+  const panel = root.querySelector<HTMLElement>('#world-map-panel');
+  if (panel && !panel.hidden && liveWorldMapGame) updateMapPreviewPresence(liveWorldMapGame, connectedPresence());
+}
+
+function closeWorldMapPanel(): void {
+  const panel = root.querySelector<HTMLElement>('#world-map-panel'); if (panel) panel.hidden = true;
+  liveWorldMapGame?.destroy(true); liveWorldMapGame = undefined;
 }
 
 async function openOriginShopPanel(): Promise<void> {

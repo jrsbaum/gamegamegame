@@ -3,7 +3,7 @@ import {
   getContentDefinition, ONLINE_COINS_PER_HOUR, OFFLINE_COINS_PER_HOUR,
   isKnownItemId, isWorldTileWalkable, ORIGIN_SHOP_OFFERS, WORLD_HEIGHT_TILES, WORLD_WIDTH_TILES, type ContentDefinition, type Quality
 } from "@lafarmer/content";
-import type { Direction, FarmItem, FarmItemView, FarmStructure, FarmStructureType, MarketListing, MoveCommand, MoveResult, PlayerState, WalletEntry, WorldSnapshot } from "./domain.js";
+import type { Direction, FarmItem, FarmItemView, FarmStructure, FarmStructureType, MarketListing, MoveCommand, MoveResult, PlayerState, WalletEntry, WorldPresence, WorldSnapshot } from "./domain.js";
 import type { FarmRepository, MarketRepository, PlayerRepository, StructureRepository, WalletRepository } from "./repositories.js";
 
 const WORLD_BOUNDS = { minX: 0, maxX: WORLD_WIDTH_TILES - 1, minY: 0, maxY: WORLD_HEIGHT_TILES - 1 } as const;
@@ -41,8 +41,24 @@ export class GameService {
     return {
       bounds: WORLD_BOUNDS, player, players: players.filter((candidate) => candidate.id !== playerId && candidate.currentRegionId === regionId),
       farmItems: farmItems.filter((item) => item.regionId === regionId).map((item) => this.toView(item)), structures: structures.filter((structure) => structure.regionId === regionId), listings,
+      presence: await this.worldPresence(),
       offlineProgress: returnedProgress
     };
+  }
+
+  async worldPresence(onlinePlayerIds: ReadonlySet<string> = new Set()): Promise<WorldPresence[]> {
+    const persistedPlayers = await this.repositories.players.listAll();
+    const players = persistedPlayers.map((candidate) => this.activePlayers.get(candidate.id) ?? candidate);
+    return players.filter((candidate) => candidate.homeRegionId).map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name,
+      farmName: candidate.farmName,
+      homeRegionId: candidate.homeRegionId,
+      currentRegionId: candidate.currentRegionId ?? candidate.homeRegionId,
+      appearance: candidate.appearance,
+      position: candidate.position,
+      online: onlinePlayerIds.has(candidate.id)
+    }));
   }
 
   async resume(playerId: string): Promise<PlayerState> {
@@ -79,14 +95,22 @@ export class GameService {
     const previous = this.actionReceipts.get(receiptKey);
     if (previous) return previous;
     const player = await this.requirePlayer(playerId);
-    const position = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
-    if (command.direction === "up") position.y -= 1;
-    if (command.direction === "down") position.y += 1;
-    if (command.direction === "left") position.x -= 1;
-    if (command.direction === "right") position.x += 1;
+    let position = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
     const regionId = player.currentRegionId ?? player.homeRegionId;
     const structures = await this.repositories.structures.listByOwnerId(playerId);
-    const nextPosition = isWorldTileWalkable(position.x, position.y) && !structures.some((structure) => structure.regionId === regionId && insideStructureFootprint(structure, position.x, position.y)) ? position : player.position;
+    const steps = command.sprint ? 2 : 1;
+    let nextPosition = { ...position };
+    for (let step = 0; step < steps; step += 1) {
+      if (command.direction === "up") nextPosition.y -= 1;
+      if (command.direction === "down") nextPosition.y += 1;
+      if (command.direction === "left") nextPosition.x -= 1;
+      if (command.direction === "right") nextPosition.x += 1;
+      if (!isWorldTileWalkable(nextPosition.x, nextPosition.y) || structures.some((structure) => structure.regionId === regionId && insideStructureFootprint(structure, nextPosition.x, nextPosition.y))) {
+        nextPosition = step === 0 ? { ...player.position } : { ...position };
+        break;
+      }
+      position = { ...nextPosition };
+    }
     const updated: PlayerState = { ...player, lastActiveAt: this.now(), position: nextPosition };
     await this.savePlayer(updated, false);
     const result: MoveResult = { actionId: command.actionId, accepted: true, player: updated };
@@ -186,8 +210,11 @@ export class GameService {
     const { getConnection } = await import("./world-service.js");
     const connection = getConnection(currentRegionId, targetRegionId);
     if (!connection) throw new GameError("not_neighbor");
-    if (Math.abs(player.position.x - connection.entry.x) > 3 || Math.abs(player.position.y - connection.entry.y) > 3) throw new GameError("not_at_connection");
-    const updated = { ...player, currentRegionId: targetRegionId, position: { x: 8, y: 8 }, lastActiveAt: this.now() };
+    const outgoing = connection.fromRegionId === currentRegionId;
+    const entry = outgoing ? connection.entry : connection.exit;
+    const exit = outgoing ? connection.exit : connection.entry;
+    if (Math.abs(player.position.x - entry.x) > 3 || Math.abs(player.position.y - entry.y) > 3) throw new GameError("not_at_connection");
+    const updated = { ...player, currentRegionId: targetRegionId, position: { ...exit }, lastActiveAt: this.now() };
     await this.savePlayer(updated);
     return updated;
   }

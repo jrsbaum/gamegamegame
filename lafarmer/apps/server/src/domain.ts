@@ -125,6 +125,18 @@ export type Direction = "up" | "down" | "left" | "right";
 export type MoveCommand = {
   actionId: string;
   direction: Direction;
+  sprint?: boolean;
+};
+
+export type WorldPresence = {
+  id: string;
+  name: string;
+  farmName: string;
+  homeRegionId: string | null;
+  currentRegionId: string | null;
+  appearance: PlayerAppearance;
+  position: { x: number; y: number };
+  online: boolean;
 };
 
 export type MoveResult = {
@@ -140,5 +152,6 @@ export type WorldSnapshot = {
   farmItems: FarmItemView[];
   structures: FarmStructure[];
   listings: MarketListing[];
+  presence: WorldPresence[];
   offlineProgress: { coins: number; completedCycles: number; blockedByCapacity: number };
 };

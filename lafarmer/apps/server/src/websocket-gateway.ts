@@ -37,7 +37,7 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     game.markOnlineActivity(playerId);
     const onlineTimer = setInterval(() => void game.onlineTick(playerId).then((player) => send(client, { type: "wallet.updated", payload: { coins: player.coins } })), ONLINE_TICK_INTERVAL_MS);
     connections.set(playerId, { client, onlineTimer });
-    void game.snapshot(playerId).then((snapshot) => { send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); });
+    void game.snapshot(playerId).then(async (snapshot) => { snapshot.presence = await game.worldPresence(new Set(connections.keys())); send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); await broadcastPresence(); });
 
     client.on("message", (data) => {
       const previous = messageQueues.get(client) ?? Promise.resolve();
@@ -51,6 +51,7 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
         connections.delete(playerId);
         clients.delete(playerId);
         broadcastExcept(playerId, { type: "player_left", playerId });
+        void broadcastPresence();
       }
     });
   });
@@ -71,7 +72,7 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     try {
       if (isMoveMessage(message)) {
         const move = readPayload(message);
-        const result = await game.move(client.playerId!, { actionId: String(move.actionId), direction: move.direction as Direction });
+        const result = await game.move(client.playerId!, { actionId: String(move.actionId), direction: move.direction as Direction, sprint: move.sprint === true });
         send(client, { type: "move_ack", ...result });
         broadcastExcept(client.playerId!, { type: "player_moved", playerId: client.playerId, player: result.player });
       } else {
@@ -85,7 +86,12 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
         if (message.type === "market.list") send(client, { type: "market.updated", listing: await game.createListing(client.playerId!, { contentId: String(payload.contentId), quantity: Number(payload.quantity), unitPrice: Number(payload.unitPrice) }) });
         if (message.type === "market.buy") { const result = await game.buyListing(client.playerId!, String(payload.listingId), String(payload.idempotencyKey ?? payload.actionId ?? "")); send(client, { type: "market.purchased", ...result }); }
         if (message.type === "farm.structure.build") send(client, { type: "farm.structure.built", structure: await game.buildStructure(client.playerId!, { type: String(payload.type) as never, x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
-        if (message.type === "world.region.enter") send(client, { type: "world.region.entered", player: await game.enterRegion(client.playerId!, String(payload.regionId)) });
+        if (message.type === "world.region.enter") {
+          const player = await game.enterRegion(client.playerId!, String(payload.regionId));
+          send(client, { type: "world.region.entered", player });
+          broadcastExcept(client.playerId!, { type: "player_region_changed", playerId: client.playerId, player });
+          await broadcastPresence();
+        }
         await sendSnapshot(client);
       }
     } catch (error) {
@@ -100,9 +106,17 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     }
   }
 
+  async function broadcastPresence(): Promise<void> {
+    const presence = await game.worldPresence(new Set(connections.keys()));
+    const serialized = JSON.stringify({ type: "world.presence", presence });
+    for (const connection of connections.values()) if (connection.client.readyState === WebSocket.OPEN) connection.client.send(serialized);
+  }
+
   async function sendSnapshot(client: Client): Promise<void> {
     if (!client.playerId) return;
-    send(client, { type: "snapshot", snapshot: await game.snapshot(client.playerId) });
+    const snapshot = await game.snapshot(client.playerId);
+    snapshot.presence = await game.worldPresence(new Set(connections.keys()));
+    send(client, { type: "snapshot", snapshot });
   }
 
   return {
@@ -121,7 +135,7 @@ function readToken(request: IncomingMessage, url: URL): string {
   return authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
 }
 
-function isMoveMessage(value: unknown): value is { type: "move"; actionId: string; direction: Direction } {
+function isMoveMessage(value: unknown): value is { type: "move"; actionId: string; direction: Direction; sprint?: boolean } {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
   const payload = (message.payload && typeof message.payload === "object" ? message.payload : message) as Record<string, unknown>;

@@ -9,7 +9,18 @@ export interface PlayerProfile {
 }
 
 export type LandOption = { id: string; regionId: string; x: number; y: number; biome: string; title: string; feature: string; summary: string; fertility: number; nearbyNeighbors: number; polygon: readonly [number, number][]; connectionId: string | null; locked: boolean };
-export type WorldOverviewRegion = Omit<LandOption, 'id' | 'x' | 'y' | 'nearbyNeighbors' | 'locked' | 'title'> & { id: string; name: string; status: 'occupied' | 'frontier' | 'locked'; occupiedBy: string | null };
+export type WorldOverviewRegion = Omit<LandOption, 'id' | 'x' | 'y' | 'nearbyNeighbors' | 'locked' | 'title'> & { id: string; name: string; neighbors: readonly string[]; status: 'occupied' | 'frontier' | 'locked'; occupiedBy: string | null };
+
+export type WorldPresence = {
+  id: string;
+  name: string;
+  farmName: string;
+  homeRegionId: string | null;
+  currentRegionId: string | null;
+  appearance: { clothing: PlayerProfile['outfit']; hair: PlayerProfile['hair'] };
+  position: { x: number; y: number };
+  online: boolean;
+};
 
 export type ServerPlayer = {
   id: string;
@@ -146,12 +157,14 @@ export class RealtimeClient {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify({ type, payload })); return true;
   }
-  move(direction: 'up' | 'down' | 'left' | 'right'): string | false {
+  move(direction: 'up' | 'down' | 'left' | 'right', sprint = false): string | false {
     const actionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    if (!this.send('move', { actionId, direction })) return false;
+    if (!this.send('move', { actionId, direction, sprint })) return false;
     this.moveSentAt.set(actionId, Date.now());
     return actionId;
   }
+  enterRegion(regionId: string): boolean { return this.send('world.region.enter', { regionId }); }
+  requestSnapshot(): boolean { return this.send('snapshot.get'); }
   action(type: string, payload: Record<string, unknown> = {}): boolean { return this.send(type, payload); }
   close(): void {
     this.closedByUser = true;

@@ -11,6 +11,7 @@ export type WorldOverviewRegion = {
   summary: string;
   fertility: number;
   polygon: readonly [number, number][];
+  neighbors: readonly string[];
   status: WorldRegionStatus;
   occupiedBy: string | null;
   connectionId: string | null;
@@ -68,6 +69,7 @@ export function buildWorldOverview(players: PlayerState[], playerId: string): Wo
       summary: region.summary,
       fertility: region.fertility,
       polygon: region.polygon,
+      neighbors: region.neighbors,
       status: owner ? "occupied" : option ? "frontier" : "locked",
       occupiedBy: owner?.name ?? null,
       connectionId: option?.connectionId ?? null

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { isInsideFarmBoundary, isWorldTileWalkable, isWorldWaterTile, outfits, palette, WORLD_HEIGHT_TILES, WORLD_OBSTACLES, WORLD_TILE_SIZE, WORLD_WIDTH_TILES, type WorldObstacle } from '@lafarmer/content-client';
-import type { PlayerProfile, RealtimeClient } from './network';
+import { getWorldRegion, isInsideFarmBoundary, isWorldTileWalkable, isWorldWaterTile, outfits, palette, WORLD_CONNECTIONS, WORLD_HEIGHT_TILES, WORLD_OBSTACLES, WORLD_TILE_SIZE, WORLD_WIDTH_TILES, type WorldObstacle } from '@lafarmer/content-client';
+import type { PlayerProfile, RealtimeClient, WorldPresence } from './network';
 
 const WORLD = { width: WORLD_WIDTH_TILES * WORLD_TILE_SIZE, height: WORLD_HEIGHT_TILES * WORLD_TILE_SIZE };
 const MOVE_SEND_INTERVAL = 250;
@@ -9,7 +9,7 @@ const PLAYER_RADIUS = 13;
 const RECONCILE_DISTANCE = 44;
 const color = (hex: string): number => Number(`0x${hex.slice(1)}`);
 
-interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onProduction?: (ready: number, total: number) => void; onSnapshot?: (snapshot: Record<string, unknown>) => void; onMarket?: () => void; }
+interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onProduction?: (ready: number, total: number) => void; onSnapshot?: (snapshot: Record<string, unknown>) => void; onPresence?: (presence: WorldPresence[]) => void; onMarket?: () => void; onConnectionPrompt?: (message: string) => void; }
 type RemoteView = { body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text };
 type FarmView = { id: string; contentId: string; ready: boolean; body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text; x: number; y: number };
 
@@ -20,6 +20,10 @@ export class WorldScene extends Phaser.Scene {
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private worldData!: WorldData;
   private touchDirection: 'up' | 'down' | 'left' | 'right' | undefined;
+  private currentRegionId = '';
+  private knownPresence: WorldPresence[] = [];
+  private lastConnectionPrompt = '';
+  private lastRegionEntryAt = 0;
   private lastMoveSent = 0;
   private lastLocalPosition = { x: 0, y: 0 };
   private readonly pendingMoves = new Map<string, 'up' | 'down' | 'left' | 'right'>();
@@ -32,9 +36,10 @@ export class WorldScene extends Phaser.Scene {
 
   create(data?: unknown): void {
     this.worldData = data as WorldData;
+    this.currentRegionId = this.worldData.profile.plotId;
     this.drawMap(); this.drawObstacles(); this.createPlayer(this.worldData.profile);
     this.cursors = this.input.keyboard!.createCursorKeys();
-    this.keys = this.input.keyboard!.addKeys('W,A,S,D,E') as Record<string, Phaser.Input.Keyboard.Key>;
+    this.keys = this.input.keyboard!.addKeys('W,A,S,D,E,SPACE') as Record<string, Phaser.Input.Keyboard.Key>;
     this.cameras.main.setBounds(0, 0, WORLD.width, WORLD.height);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.setResponsiveZoom();
@@ -48,7 +53,7 @@ export class WorldScene extends Phaser.Scene {
       button.addEventListener('pointercancel', stop);
       button.addEventListener('pointerleave', stop);
     });
-    this.bindRealtime(); this.applyServerPosition(5, 5);
+    this.bindRealtime(); this.applyServerPosition(5, 5); this.updateConnectionPrompt();
   }
 
   private applySnapshot(snapshot: Record<string, unknown>): void {
@@ -61,11 +66,15 @@ export class WorldScene extends Phaser.Scene {
     if (typeof player?.coins === 'number') this.worldData.onCoins(player.coins);
     if (player?.inventory) this.worldData.onInventory?.(player.inventory);
     if (typeof player?.position?.x === 'number' && typeof player.position.y === 'number') this.applyServerPosition(player.position.x, player.position.y);
+    const playerRegion = snapshot.player as { currentRegionId?: string | null; homeRegionId?: string | null } | undefined;
+    if (playerRegion?.currentRegionId || playerRegion?.homeRegionId) this.currentRegionId = playerRegion.currentRegionId ?? playerRegion.homeRegionId ?? this.currentRegionId;
+    const presence = snapshot.presence as WorldPresence[] | undefined;
+    if (presence) { this.knownPresence = presence; this.worldData.onPresence?.(presence); }
     this.worldData.onSnapshot?.(snapshot);
     (snapshot.players as Array<Record<string, unknown>> | undefined)?.forEach((remote) => this.renderRemotePlayer(remote));
     (snapshot.farmItems as Array<Record<string, unknown>> | undefined)?.forEach((item) => this.renderFarmItem(item));
     (snapshot.structures as Array<Record<string, unknown>> | undefined)?.forEach((structure) => this.renderStructure(structure));
-    this.notifyFarmStatus();
+    this.notifyFarmStatus(); this.updateConnectionPrompt();
   }
 
   update(time: number, delta: number): void {
@@ -76,10 +85,12 @@ export class WorldScene extends Phaser.Scene {
     const direction = this.touchDirection ?? (right ? 'right' : left ? 'left' : down ? 'down' : up ? 'up' : undefined);
     if (direction) this.moveDirection(direction, time, delta);
     if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact();
+    this.updateConnectionPrompt();
   }
 
   private moveDirection(direction: 'up' | 'down' | 'left' | 'right', time: number, delta: number): void {
-    const distance = MOVE_SPEED * Math.min(delta, 100) / 1_000;
+    const sprint = Boolean(this.keys.SPACE?.isDown);
+    const distance = MOVE_SPEED * (sprint ? 2 : 1) * Math.min(delta, 100) / 1_000;
     const next = { x: this.player.x, y: this.player.y };
     if (direction === 'right') next.x += distance;
     if (direction === 'left') next.x -= distance;
@@ -88,7 +99,7 @@ export class WorldScene extends Phaser.Scene {
     if (this.canOccupy(next.x, next.y)) { this.player.setPosition(next.x, next.y); this.updateNameTag(); }
     if (time - this.lastMoveSent >= MOVE_SEND_INTERVAL && (this.player.x !== this.lastLocalPosition.x || this.player.y !== this.lastLocalPosition.y)) {
       this.lastMoveSent = time; this.lastLocalPosition = { x: this.player.x, y: this.player.y };
-      const actionId = this.worldData.realtime.move(direction);
+      const actionId = this.worldData.realtime.move(direction, sprint);
       if (actionId) this.pendingMoves.set(actionId, direction);
     }
   }
@@ -100,9 +111,12 @@ export class WorldScene extends Phaser.Scene {
       if (message.type === 'farm.collected') { const payload = message as { inventory?: Record<string, number>; item?: Record<string, unknown> }; if (payload.inventory) this.worldData.onInventory?.(payload.inventory); if (payload.item) this.renderFarmItem(payload.item); }
       if (message.type === 'farm.updated') { const item = message.item as Record<string, unknown> | undefined; if (item) this.renderFarmItem(item); }
       if (message.type === 'hello' || message.type === 'snapshot') this.applySnapshot(message.snapshot as Record<string, unknown>);
-      if (message.type === 'player_joined') this.renderRemotePlayer(message.player as Record<string, unknown>);
-      if (message.type === 'player_moved') { const payload = message as { playerId?: string; player?: Record<string, unknown> }; if (payload.playerId && payload.player) this.renderRemotePlayer(payload.player, payload.playerId); }
-      if (message.type === 'player_left' && typeof message.playerId === 'string') this.removeRemotePlayer(message.playerId);
+      if (message.type === 'world.presence') { const presence = message.presence as WorldPresence[] | undefined; if (presence) { this.knownPresence = presence; this.worldData.onPresence?.(presence); } }
+      if (message.type === 'world.region.entered') { const player = message.player as Record<string, unknown> | undefined; if (player) { this.currentRegionId = String(player.currentRegionId ?? player.homeRegionId ?? this.currentRegionId); const position = player.position as { x?: number; y?: number } | undefined; if (typeof position?.x === 'number' && typeof position.y === 'number') this.applyServerPosition(position.x, position.y); this.worldData.realtime.requestSnapshot(); this.updateConnectionPrompt(); } }
+      if (message.type === 'player_joined') { const player = message.player as Record<string, unknown>; this.patchPresence(player, true); this.renderRemotePlayer(player); }
+      if (message.type === 'player_moved') { const payload = message as { playerId?: string; player?: Record<string, unknown> }; if (payload.playerId && payload.player) { this.patchPresence({ ...payload.player, id: payload.playerId }, true); this.renderRemotePlayer(payload.player, payload.playerId); } }
+      if (message.type === 'player_region_changed') { const payload = message as { playerId?: string; player?: Record<string, unknown> }; if (payload.playerId && payload.player) { this.patchPresence({ ...payload.player, id: payload.playerId }, true); this.renderRemotePlayer(payload.player, payload.playerId); } }
+      if (message.type === 'player_left' && typeof message.playerId === 'string') { this.removeRemotePlayer(message.playerId); this.knownPresence = this.knownPresence.map((presence) => presence.id === message.playerId ? { ...presence, online: false } : presence); this.worldData.onPresence?.(this.knownPresence); }
       if (message.type === 'move_ack') { const position = (message.player as { position?: { x: number; y: number } } | undefined)?.position; if (position) this.reconcileServerPosition(position.x, position.y, typeof message.actionId === 'string' ? message.actionId : undefined); }
     });
   }
@@ -120,11 +134,45 @@ export class WorldScene extends Phaser.Scene {
   }
 
   private interact(): void {
+    const connection = this.nearbyConnection();
+    if (connection && this.lastRegionEntryAt + 1_000 < performance.now()) {
+      const targetId = connection.fromRegionId === this.currentRegionId ? connection.toRegionId : connection.fromRegionId;
+      this.lastRegionEntryAt = performance.now(); this.worldData.realtime.enterRegion(targetId); return;
+    }
     const nearest = [...this.farmItems.values()].sort((a, b) => this.distance(a.x, a.y) - this.distance(b.x, b.y))[0];
     if (nearest && this.distance(nearest.x, nearest.y) < 110) { const action = nearest.contentId === 'cow' || nearest.contentId === 'dinosaur' ? (nearest.ready ? 'farm.collect' : 'farm.care') : (nearest.ready ? 'farm.harvest' : 'farm.care'); this.worldData.realtime.action(action, { itemId: nearest.id }); return; }
     const market = this.gridToWorld(31, 18); if (Phaser.Math.Distance.Between(this.player.x, this.player.y, market.x, market.y) < 180) this.worldData.onMarket?.();
   }
   private distance(x: number, y: number): number { return Phaser.Math.Distance.Between(this.player.x, this.player.y, x, y); }
+
+  private nearbyConnection(): (typeof WORLD_CONNECTIONS)[number] | undefined {
+    return WORLD_CONNECTIONS.find((connection) => {
+      const outgoing = connection.fromRegionId === this.currentRegionId;
+      if (!outgoing && connection.toRegionId !== this.currentRegionId) return false;
+      const targetId = outgoing ? connection.toRegionId : connection.fromRegionId;
+      if (!this.knownPresence.some((presence) => presence.homeRegionId === targetId)) return false;
+      const point = outgoing ? connection.entry : connection.exit;
+      const world = this.gridToWorld(point.x, point.y);
+      return this.distance(world.x, world.y) < WORLD_TILE_SIZE * 3;
+    });
+  }
+
+  private updateConnectionPrompt(): void {
+    const connection = this.nearbyConnection();
+    const targetId = connection ? (connection.fromRegionId === this.currentRegionId ? connection.toRegionId : connection.fromRegionId) : '';
+    const target = targetId ? getWorldRegion(targetId) : undefined;
+    const message = target ? `${connection?.kind === 'bridge' ? 'Ponte' : connection?.kind === 'gate' ? 'Porteira' : 'Passagem'} para ${target.name} · pressione E para visitar.` : '';
+    if (message !== this.lastConnectionPrompt) { this.lastConnectionPrompt = message; this.worldData.onConnectionPrompt?.(message); }
+  }
+
+  private patchPresence(raw: Record<string, unknown>, online: boolean): void {
+    const position = raw.position as { x?: number; y?: number } | undefined;
+    const appearance = raw.appearance as { clothing?: PlayerProfile['outfit']; hair?: PlayerProfile['hair'] } | undefined;
+    const id = String(raw.id ?? '');
+    if (!id || typeof position?.x !== 'number' || typeof position.y !== 'number') return;
+    const next: WorldPresence = { id, name: String(raw.name ?? 'vizinho'), farmName: String(raw.farmName ?? ''), homeRegionId: typeof raw.homeRegionId === 'string' ? raw.homeRegionId : null, currentRegionId: typeof raw.currentRegionId === 'string' ? raw.currentRegionId : null, appearance: { clothing: appearance?.clothing ?? 'forest', hair: appearance?.hair ?? 'short' }, position: { x: position.x, y: position.y }, online };
+    this.knownPresence = [...this.knownPresence.filter((presence) => presence.id !== id), next]; this.worldData.onPresence?.(this.knownPresence);
+  }
 
   private renderFarmItem(item: Record<string, unknown>): void {
     const id = String(item.id ?? ''); if (!id) return; this.removeFarmItem(id);
@@ -150,7 +198,9 @@ export class WorldScene extends Phaser.Scene {
   private setResponsiveZoom(): void { this.cameras.main.setZoom(Math.min(window.innerWidth / 920, window.innerHeight / 620, 1)); }
 
   private renderRemotePlayer(raw: Record<string, unknown>, forcedId?: string): void {
-    const id = forcedId ?? String(raw.id ?? ''); const position = raw.position as { x?: number; y?: number } | undefined; if (!id || !position) return; this.removeRemotePlayer(id);
+    const id = forcedId ?? String(raw.id ?? ''); const position = raw.position as { x?: number; y?: number } | undefined; if (!id || !position) return;
+    const regionId = String(raw.currentRegionId ?? raw.homeRegionId ?? ''); if (regionId && regionId !== this.currentRegionId) { this.removeRemotePlayer(id); return; }
+    this.removeRemotePlayer(id);
     const worldPosition = this.gridToWorld(Number(position.x ?? 0), Number(position.y ?? 0)); const body = this.add.graphics().setDepth(90).setPosition(worldPosition.x, worldPosition.y);
     const appearance = raw.appearance as { clothing?: PlayerProfile['outfit']; hair?: PlayerProfile['hair'] } | undefined;
     this.drawPlayer(body, { nick: String(raw.name ?? 'vizinho'), name: String(raw.name ?? 'vizinho'), farmName: '', specialization: null, plotId: '', outfit: appearance?.clothing ?? 'forest', hair: appearance?.hair ?? 'short' });

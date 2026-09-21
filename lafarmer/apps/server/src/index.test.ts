@@ -124,6 +124,7 @@ describe("LaFarmer server", () => {
     const hello = messages.find((message) => message.type === "hello");
     if (!hello) throw new Error("missing websocket hello");
     const before = hello.snapshot.player.position.x;
+    const beforeY = hello.snapshot.player.position.y;
     socket.send(JSON.stringify({ type: "move", actionId: "move-1", direction: "right" }));
     await waitFor(() => messages.some((message) => message.type === "move_ack"));
     const firstAck = messages.find((message) => message.type === "move_ack");
@@ -143,6 +144,9 @@ describe("LaFarmer server", () => {
     const blockedAck = messages.find((message) => message.type === "move_ack" && message.actionId === "move-3");
     if (!blockedAck) throw new Error("missing blocked movement acknowledgement");
     expect(blockedAck.player.position.x).toBe(before + 2);
+    socket.send(JSON.stringify({ type: "move", actionId: "move-sprint", direction: "down", sprint: true }));
+    await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === "move-sprint"));
+    expect(messages.find((message) => message.type === "move_ack" && message.actionId === "move-sprint")?.player.position.y).toBe(beforeY + 2);
     socket.close();
   });
 

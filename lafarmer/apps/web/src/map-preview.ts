@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { palette } from '@lafarmer/content-client';
-import type { WorldOverviewRegion } from './network';
+import type { WorldOverviewRegion, WorldPresence } from './network';
 
 const MAP_WIDTH = 1120;
 const MAP_HEIGHT = 950;
@@ -10,6 +10,7 @@ type MapPreviewData = {
   selectedId: string;
   interactive: boolean;
   onSelect: (regionId: string) => void;
+  presence?: WorldPresence[];
 };
 
 type RegionView = {
@@ -36,6 +37,7 @@ const regionCenter = (region: WorldOverviewRegion): MapPoint => {
 class MapPreviewScene extends Phaser.Scene {
   private mapData!: MapPreviewData;
   private readonly views = new Map<string, RegionView>();
+  private readonly presenceMarkers = new Map<string, Phaser.GameObjects.Container>();
 
   constructor() { super('map-preview'); }
 
@@ -47,6 +49,7 @@ class MapPreviewScene extends Phaser.Scene {
     this.drawRoutes();
     this.drawRegions();
     this.drawCartography();
+    this.drawPresence(this.mapData.presence ?? []);
   }
 
   private drawOcean(): void {
@@ -166,6 +169,37 @@ class MapPreviewScene extends Phaser.Scene {
     this.add.text(MAP_WIDTH - 30, MAP_HEIGHT - 27, 'CARTA DO VALE  ·  fronteira 01', { color: '#315f4b', fontFamily: 'Trebuchet MS, Segoe UI, sans-serif', fontSize: '12px', fontStyle: 'bold' }).setOrigin(1, .5).setDepth(11).setAlpha(.8);
     this.add.text(34, MAP_HEIGHT - 28, 'um mundo contínuo', { color: '#315f4b', fontFamily: 'Georgia, serif', fontSize: '16px', fontStyle: 'italic' }).setDepth(11).setAlpha(.85);
   }
+
+  public updatePresence(presence: WorldPresence[]): void {
+    this.mapData.presence = presence;
+    this.presenceMarkers.forEach((marker) => marker.destroy());
+    this.presenceMarkers.clear();
+    this.drawPresence(presence);
+  }
+
+  private drawPresence(presence: WorldPresence[]): void {
+    const grouped = new Map<string, WorldPresence[]>();
+    presence.forEach((person) => {
+      const regionId = person.currentRegionId ?? person.homeRegionId;
+      if (!regionId || !this.mapData.regions.some((region) => region.id === regionId)) return;
+      const people = grouped.get(regionId) ?? [];
+      people.push(person); grouped.set(regionId, people);
+    });
+    grouped.forEach((people, regionId) => {
+      const region = this.mapData.regions.find((candidate) => candidate.id === regionId); if (!region) return;
+      const center = regionCenter(region);
+      people.forEach((person, index) => {
+        const offset = (index - (people.length - 1) / 2) * 25;
+        const marker = this.add.container(center.x + offset, center.y + 34).setDepth(14).setAlpha(person.online ? .98 : .45);
+        const avatar = this.add.graphics();
+        const clothing = person.appearance.clothing === 'coral' ? hex('#d86b5d') : person.appearance.clothing === 'river' ? hex('#4e8290') : hex('#315d4a');
+        avatar.fillStyle(hex('#244f40'), .2).fillEllipse(0, 24, 28, 9).fillStyle(clothing, 1).fillRoundedRect(-11, -1, 22, 27, 7).fillStyle(hex('#a96e4f'), 1).fillCircle(0, -12, 13).fillStyle(hex('#5a382e'), 1).fillRoundedRect(-13, -23, 26, 10, 7);
+        if (person.appearance.hair === 'long') avatar.fillRoundedRect(-14, -13, 5, 20, 3).fillRoundedRect(9, -13, 5, 20, 3);
+        const label = this.add.text(0, 32, person.name, { color: '#244f40', fontFamily: 'Trebuchet MS, Segoe UI, sans-serif', fontSize: '11px', fontStyle: 'bold', stroke: '#e8edda', strokeThickness: 3 }).setOrigin(.5);
+        marker.add([avatar, label]); this.presenceMarkers.set(person.id, marker);
+      });
+    });
+  }
 }
 
 export function createMapPreview(container: HTMLElement, data: MapPreviewData): Phaser.Game {
@@ -182,4 +216,9 @@ export function createMapPreview(container: HTMLElement, data: MapPreviewData): 
   });
   game.scene.start('map-preview', data);
   return game;
+}
+
+export function updateMapPreviewPresence(game: Phaser.Game, presence: WorldPresence[]): void {
+  const scene = game.scene.getScene('map-preview') as MapPreviewScene | undefined;
+  scene?.updatePresence(presence);
 }
