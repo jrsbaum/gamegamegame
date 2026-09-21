@@ -158,6 +158,8 @@ export class CaracolGameManager {
     for (const subscription of snapshot.pushSubscriptions) this.pushSubscriptions.set(subscription.endpoint, subscription);
     this.effects.clear();
     for (const effect of snapshot.effects) this.effects.set(effect.id, effect);
+    this.sessions.clear();
+    for (const session of snapshot.sessions) this.sessions.set(session.tokenHash, session.accountId);
 
     await this.tickInternal(this.clock(), false);
   }
@@ -260,7 +262,7 @@ export class CaracolGameManager {
         createdAt: now,
       });
       await this.ensureTarget();
-      const sessionToken = this.issueSession(socket, runtime);
+      const sessionToken = await this.issueSession(socket, runtime);
       ack({ ok: true, accountId: runtime.id, nickname: runtime.nickname, sessionToken, state: this.stateFor(runtime) });
       this.broadcastState();
     } catch (error) {
@@ -283,7 +285,7 @@ export class CaracolGameManager {
     const now = this.clock();
     await this.attachSocket(socket, account, now);
     await this.ensureTarget();
-    const sessionToken = this.issueSession(socket, account);
+    const sessionToken = await this.issueSession(socket, account);
     ack({ ok: true, accountId: account.id, nickname: account.nickname, sessionToken, state: this.stateFor(account) });
     this.broadcastState();
   }
@@ -924,7 +926,7 @@ export class CaracolGameManager {
   }
 
   private async logout(socket: CaracolSocket): Promise<void> {
-    this.revokeSession(socket);
+    await this.revokeSession(socket);
     await this.detachSocket(socket);
     this.broadcastState();
   }
@@ -945,18 +947,22 @@ export class CaracolGameManager {
     socket.data.caracolAccountId = account.id;
   }
 
-  private issueSession(socket: CaracolSocket, account: RuntimeAccount): string {
-    this.revokeSession(socket);
+  private async issueSession(socket: CaracolSocket, account: RuntimeAccount): Promise<string> {
+    await this.revokeSession(socket);
     const sessionToken = randomBytes(32).toString('base64url');
     const tokenHash = this.hashSessionToken(sessionToken);
     this.sessions.set(tokenHash, account.id);
     socket.data.caracolSessionTokenHash = tokenHash;
+    await this.store.createSession(tokenHash, account.id);
     return sessionToken;
   }
 
-  private revokeSession(socket: CaracolSocket): void {
+  private async revokeSession(socket: CaracolSocket): Promise<void> {
     const tokenHash = socket.data.caracolSessionTokenHash;
-    if (tokenHash) this.sessions.delete(tokenHash);
+    if (tokenHash) {
+      this.sessions.delete(tokenHash);
+      await this.store.deleteSession(tokenHash);
+    }
     delete socket.data.caracolSessionTokenHash;
   }
 

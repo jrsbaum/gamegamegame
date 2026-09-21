@@ -86,11 +86,17 @@ export interface CaracolPushRecord {
   updatedAt: number;
 }
 
+export interface CaracolSessionRecord {
+  tokenHash: string;
+  accountId: string;
+}
+
 export interface CaracolSnapshot {
   accounts: CaracolAccountRecord[];
   world: CaracolWorldRecord;
   pushSubscriptions: CaracolPushRecord[];
   effects: CaracolEffectRecord[];
+  sessions: CaracolSessionRecord[];
 }
 
 export class CaracolNicknameTakenError extends Error {
@@ -115,6 +121,8 @@ export interface CaracolStore {
   }>;
   upsertPushSubscription(subscription: CaracolPushRecord): Promise<void>;
   deletePushSubscription(endpoint: string): Promise<void>;
+  createSession(tokenHash: string, accountId: string): Promise<void>;
+  deleteSession(tokenHash: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -235,6 +243,18 @@ CREATE TABLE IF NOT EXISTS caracol_effects (
 -- dois NULL nunca colidem, e o Raio (escopo mundo) não tem dono.
 CREATE UNIQUE INDEX IF NOT EXISTS caracol_effects_owner_item_idx
   ON caracol_effects (scope, (COALESCE(account_id, '')), item_id);
+
+-- Sobrevive a restart/deploy: sem isto, um reinício do processo zerava o mapa
+-- de sessões em memória e deslogava todo mundo (SESSION_EXPIRED). Guarda só o
+-- hash do token, nunca o token em si, mesma regra do mapa em memória.
+CREATE TABLE IF NOT EXISTS caracol_sessions (
+  token_hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES caracol_accounts(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS caracol_sessions_account_idx
+  ON caracol_sessions (account_id);
 `;
 
 /**
@@ -334,6 +354,7 @@ export class MemoryCaracolStore implements CaracolStore {
   private readonly accounts = new Map<string, CaracolAccountRecord>();
   private readonly pushes = new Map<string, CaracolPushRecord>();
   private readonly effects = new Map<string, CaracolEffectRecord>();
+  private readonly sessions = new Map<string, string>();
   private readonly history: CaracolHistoryRecord[] = [];
   private nextHistoryId = 1;
   private world: CaracolWorldRecord = initialWorld();
@@ -349,6 +370,7 @@ export class MemoryCaracolStore implements CaracolStore {
       world: cloneWorld(this.world),
       pushSubscriptions: Array.from(this.pushes.values(), clonePush),
       effects: Array.from(this.effects.values(), cloneEffect),
+      sessions: Array.from(this.sessions, ([tokenHash, accountId]) => ({ tokenHash, accountId })),
     };
   }
 
@@ -408,6 +430,14 @@ export class MemoryCaracolStore implements CaracolStore {
     this.pushes.delete(endpoint);
   }
 
+  async createSession(tokenHash: string, accountId: string): Promise<void> {
+    this.sessions.set(tokenHash, accountId);
+  }
+
+  async deleteSession(tokenHash: string): Promise<void> {
+    this.sessions.delete(tokenHash);
+  }
+
   async close(): Promise<void> {
     // Nothing to close.
   }
@@ -440,11 +470,12 @@ export class PgCaracolStore implements CaracolStore {
   }
 
   async loadSnapshot(): Promise<CaracolSnapshot> {
-    const [accounts, world, pushes, effects] = await Promise.all([
+    const [accounts, world, pushes, effects, sessions] = await Promise.all([
       this.pool.query('SELECT * FROM caracol_accounts ORDER BY nickname'),
       this.pool.query('SELECT * FROM caracol_world WHERE id = $1', [WORLD_ID]),
       this.pool.query('SELECT * FROM caracol_push_subscriptions'),
       this.pool.query('SELECT * FROM caracol_effects'),
+      this.pool.query('SELECT token_hash, account_id FROM caracol_sessions'),
     ]);
     const worldRow = world.rows[0] as Record<string, unknown> | undefined;
     return {
@@ -454,6 +485,10 @@ export class PgCaracolStore implements CaracolStore {
       effects: effects.rows
         .map((row) => effectFromRow(row as Record<string, unknown>))
         .filter((effect): effect is CaracolEffectRecord => effect !== null),
+      sessions: sessions.rows.map((row) => ({
+        tokenHash: String((row as Record<string, unknown>).token_hash),
+        accountId: String((row as Record<string, unknown>).account_id),
+      })),
     };
   }
 
@@ -596,6 +631,17 @@ export class PgCaracolStore implements CaracolStore {
 
   async deletePushSubscription(endpoint: string): Promise<void> {
     await this.pool.query('DELETE FROM caracol_push_subscriptions WHERE endpoint = $1', [endpoint]);
+  }
+
+  async createSession(tokenHash: string, accountId: string): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO caracol_sessions (token_hash, account_id) VALUES ($1, $2) ON CONFLICT (token_hash) DO NOTHING',
+      [tokenHash, accountId],
+    );
+  }
+
+  async deleteSession(tokenHash: string): Promise<void> {
+    await this.pool.query('DELETE FROM caracol_sessions WHERE token_hash = $1', [tokenHash]);
   }
 
   async close(): Promise<void> {

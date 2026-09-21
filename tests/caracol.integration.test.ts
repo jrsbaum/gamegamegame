@@ -38,11 +38,10 @@ function waitForEvent<T>(socket: TestSocket, event: keyof ServerToClientEvents, 
   });
 }
 
-async function createHarness(): Promise<Harness> {
+async function createHarness(store: MemoryCaracolStore = new MemoryCaracolStore()): Promise<Harness> {
   const httpServer = createServer();
   const ioServer = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, { cors: { origin: true } });
   const now = { value: Date.now() };
-  const store = new MemoryCaracolStore();
   const manager = createCaracolManager(ioServer, { store, clock: () => now.value, autoTick: false });
   ioServer.on('connection', (socket) => manager.bindSocket(socket));
   await manager.ready();
@@ -77,6 +76,10 @@ function login(client: TestSocket, nickname: string): Promise<CaracolActionResul
 
 function resume(client: TestSocket, sessionToken: string): Promise<CaracolActionResult> {
   return new Promise((resolve) => client.emit('caracol:resume', { sessionToken }, resolve));
+}
+
+function logout(client: TestSocket): void {
+  client.emit('caracol:logout');
 }
 
 function sync(client: TestSocket): Promise<CaracolActionResult> {
@@ -222,6 +225,50 @@ describe('mundo global do Caracol', () => {
     const refreshed = await sync(resumedClient);
     expect(refreshed.ok).toBe(true);
     if (refreshed.ok) expect(refreshed.state.you.coins).toBe(17);
+  });
+
+  it('mantém a sessão válida depois de um restart do processo (deploy)', async () => {
+    const harness = await createHarness();
+    const player = await connectClient(harness.address);
+    const created = await register(player, 'Sobrevivente');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const sessionToken = created.sessionToken;
+
+    // Simula um deploy/restart: novo processo (novo manager, nova conexão),
+    // mesmo banco por baixo (mesma MemoryCaracolStore = mesmo Postgres).
+    const restarted = await createHarness(harness.store);
+    const resumedClient = await connectClient(restarted.address);
+    const resumed = await resume(resumedClient, sessionToken);
+
+    expect(resumed.ok).toBe(true);
+    if (resumed.ok) expect(resumed.nickname).toBe('Sobrevivente');
+  });
+
+  it('sessão revogada por logout continua inválida mesmo depois de um restart do processo', async () => {
+    const harness = await createHarness();
+    const player = await connectClient(harness.address);
+    const created = await register(player, 'Deslogado');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const sessionToken = created.sessionToken;
+
+    logout(player);
+    // "caracol:logout" não tem ack no protocolo; dá tempo do servidor
+    // processar a revogação antes de derrubar a conexão (mesmo padrão usado
+    // nos outros testes deste arquivo para ações sem ack).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    player.disconnect();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Mesmo depois de um "restart" (novo manager, mesmo store), o token
+    // revogado antes do restart não deve voltar a funcionar.
+    const restarted = await createHarness(harness.store);
+    const resumedClient = await connectClient(restarted.address);
+    const resumed = await resume(resumedClient, sessionToken);
+
+    expect(resumed.ok).toBe(false);
+    if (!resumed.ok) expect(resumed.code).toBe('SESSION_EXPIRED');
   });
 
   it('mata no alcance, mantém o caracol no local, zera o desconto e o preço de redirecionar', async () => {
