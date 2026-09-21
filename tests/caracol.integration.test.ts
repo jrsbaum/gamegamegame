@@ -753,3 +753,64 @@ describe('efeitos regionais em preço, velocidade e visão de estado', () => {
     expect(etaMs % (stepMinutos * 60_000)).toBe(0);
   });
 });
+
+describe('escudo de carga regional', () => {
+  function escudoCatalog(): CaracolRegionalEventDefinition[] {
+    return [{
+      id: 'pa-teste-escudo',
+      uf: 'PA',
+      nome: 'Círio de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'escudoContaCarga' },
+    }];
+  }
+
+  it('absorve o próximo ataque contra uma conta no estado com escudo de carga ativo e grava a claim', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'PA', activeEventId: 'pa-teste-escudo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: escudoCatalog() });
+    const attacker = await connectClient(harness.address);
+    const target = await connectClient(harness.address);
+    await register(attacker, 'Atacante');
+    const targetCreated = await register(target, 'Protegido');
+    expect(targetCreated.ok).toBe(true);
+    if (!targetCreated.ok) return;
+    await selectCity(attacker, '5300108'); // DF
+    await selectCity(target, '1500107'); // Abaetetuba, PA
+
+    harness.now.value += 20_000; // acumula moedas para pagar o redirecionamento
+    const redirected = await redirect(attacker, 'Protegido');
+    expect(redirected.ok).toBe(true);
+    if (!redirected.ok) return;
+    // absorvido: o alvo do caracol continua sendo quem já era (não virou "Protegido")
+    expect(redirected.state.world.snail.targetNickname).not.toBe('Protegido');
+
+    expect(await store.hasRegionalClaim('PA', 0, targetCreated.accountId)).toBe(true);
+  });
+
+  it('não absorve uma segunda vez na mesma ativação (só um Casco defensivo de item absorveria de novo)', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'PA', activeEventId: 'pa-teste-escudo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: escudoCatalog() });
+    const attacker = await connectClient(harness.address);
+    const target = await connectClient(harness.address);
+    await register(attacker, 'Atacante2');
+    await register(target, 'Protegido2');
+    await selectCity(attacker, '5300108');
+    await selectCity(target, '1500107');
+
+    harness.now.value += 40_000; // moedas para dois redirecionamentos
+    const first = await redirect(attacker, 'Protegido2');
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.state.world.snail.targetNickname).not.toBe('Protegido2');
+
+    const second = await redirect(attacker, 'Protegido2');
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    // segunda tentativa na mesma ativação: já não há escudo regional disponível, o ataque vale
+    expect(second.state.world.snail.targetNickname).toBe('Protegido2');
+  });
+});

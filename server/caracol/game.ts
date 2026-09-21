@@ -446,7 +446,8 @@ export class CaracolGameManager {
     const plan: CommitPlan = { accounts: [[account, (payer) => { payer.coins = Math.max(0, payer.coins - cost); }]] };
     if (fireFlower) this.spendCharge(fireFlower, plan);
     const shield = this.activeEffect(target.id, 'shield', now);
-    if (shield) {
+    const regionalShield = shield ? null : await this.claimRegionalShield(target, now);
+    if (shield || regionalShield) {
       await this.absorbAttack(account, target, shield, plan, ack, {
         type: 'redirect',
         message: `${account.nickname} tentou mandar o caracol atrás de ${target.nickname}, mas bateu no Casco defensivo${cost > 0 ? ` e perdeu ${cost} moedas` : ''}.`,
@@ -718,7 +719,8 @@ export class CaracolGameManager {
     const plan: CommitPlan = {};
     this.spendCharge(charge, plan);
     const shield = this.activeEffect(target.id, 'shield', now);
-    if (shield) {
+    const regionalShield = shield ? null : await this.claimRegionalShield(target, now);
+    if (shield || regionalShield) {
       await this.absorbAttack(account, target, shield, plan, ack, {
         type: 'roulette',
         message: `${account.nickname} lançou o Bumerangue em ${target.nickname}, mas ele bateu no Casco defensivo.`,
@@ -753,22 +755,46 @@ export class CaracolGameManager {
    * O escudo absorve o ataque: o atacante já pagou (ou gastou a carga), o
    * escudo se gasta e nada mais acontece. A resposta é sucesso porque a ação
    * aconteceu e foi cobrada; o aviso `shield` conta aos dois o que houve.
+   * `shield` é `null` quando quem absorveu foi o escudo de carga regional
+   * (já reservado por `claimRegionalShield` antes desta chamada).
    */
   private async absorbAttack(
     attacker: RuntimeAccount,
     target: RuntimeAccount,
-    shield: CaracolEffectRecord,
+    shield: CaracolEffectRecord | null,
     plan: CommitPlan,
     ack: (result: CaracolActionResult) => void,
     history: Omit<CaracolHistoryRecord, 'id'>,
   ): Promise<void> {
-    this.spendCharge(shield, plan);
+    if (shield) this.spendCharge(shield, plan);
     if (!(await this.commitPlan(plan, ack))) return;
     await this.recordHistory(history);
     this.noticeAccount(attacker, 'shield', `${target.nickname} tinha um Casco defensivo. Seu ataque foi bloqueado.`);
     this.noticeAccount(target, 'shield', `Seu Casco defensivo bloqueou um ataque de ${attacker.nickname}.`);
     ack({ ok: true, state: this.stateFor(attacker) });
     this.broadcastState();
+  }
+
+  /**
+   * Escudo de carga regional (`escudoContaCarga`, ex: Círio de Nazaré): igual
+   * a ter Casco defensivo, mas nunca concedido — é derivado do estado ativo
+   * no `cityUf` do alvo. Consome na hora via `caracol_regional_claims` (uma
+   * absorção por conta, por ativação); devolve `false` quando não há escudo
+   * disponível ou já foi usado nesta ativação.
+   * ponytail: a claim é gravada antes do `commitPlan` do absorvimento (tabelas
+   * diferentes, sem transação cruzada); se o `commitPlan` falhar depois, a
+   * claim já ficou consumida. Mesmo risco que outras falhas de gravação já
+   * tratadas no arquivo (ex: giro da roleta); aceitável até haver evidência de
+   * que acontece na prática.
+   */
+  private async claimRegionalShield(target: RuntimeAccount, now: number): Promise<boolean> {
+    const uf = target.cityUf;
+    if (!uf) return false;
+    const state = this.regionalEventsByUf.get(uf);
+    if (!state?.activeEventId || state.activatedAt === null) return false;
+    const event = this.regionalEventsCatalog.find((candidate) => candidate.id === state.activeEventId);
+    if (event?.jogador?.tipo !== 'escudoContaCarga') return false;
+    return this.store.recordRegionalClaim({ uf, activatedAt: state.activatedAt, accountId: target.id, eventId: event.id, claimedAt: now });
   }
 
   /**

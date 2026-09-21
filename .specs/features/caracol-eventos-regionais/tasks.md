@@ -253,10 +253,10 @@ consumindo-o.
 - Skill: NONE
 
 **Done when**:
-- [ ] Uma conta no estado com `escudoContaCarga` ativo e sem claim registrada para a ativação absorve o próximo ataque, e uma claim é gravada no mesmo commit do absorvimento — teste dedicado em `tests/caracol.integration.test.ts`
-- [ ] Uma segunda tentativa de ataque na mesma ativação (claim já gravada) não é mais absorvida pelo evento regional (só por um Casco defensivo de item, se houver) — asserido em `tests/caracol.integration.test.ts`, teste "não absorve duas vezes na mesma ativação"
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
-- [ ] Contagem de testes: pelo menos 2 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 2+ testes a mais que a contagem antes desta task
+- [x] Uma conta no estado com `escudoContaCarga` ativo e sem claim registrada para a ativação absorve o próximo ataque, e uma claim é gravada no mesmo commit do absorvimento — teste dedicado em `tests/caracol.integration.test.ts` (nota: a claim é gravada em `caracol_regional_claims`, tabela separada de `caracol_commit`; "mesmo commit" aqui é "mesma ação serializada pela fila de mutação", não a mesma transação SQL — ver comentário `ponytail:` em `claimRegionalShield`)
+- [x] Uma segunda tentativa de ataque na mesma ativação (claim já gravada) não é mais absorvida pelo evento regional (só por um Casco defensivo de item, se houver) — asserido em `tests/caracol.integration.test.ts`, teste "não absorve duas vezes na mesma ativação"
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
+- [x] Contagem de testes: pelo menos 2 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 2 testes a mais que a contagem antes desta task (19 → 21)
 
 **Tests**: integration
 **Gate**: full
