@@ -56,6 +56,33 @@ describe("LaFarmer server", () => {
     expect(profile.json().player.appearance).toEqual({ clothing: "coral", hair: "long" });
   });
 
+  it("offers adjacent land and reserves the onboarding choice once", async () => {
+    const app = createApp();
+    apps.push(app);
+    const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Farmer", password: testPassword, credentialsSaved: true } });
+    const token = register.json().token as string;
+    const options = await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${token}` } });
+    expect(options.statusCode).toBe(200);
+    expect(options.json().options).toHaveLength(3);
+    const selected = options.json().options[0];
+    const profile = await app.inject({
+      method: "PATCH",
+      url: "/api/player/profile",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Farmer Vale", farmName: "Vale Farmer", specialization: "dinosaurs", plotId: selected.id, clothing: "forest", hair: "short" }
+    });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.json().player.farmName).toBe("Vale Farmer");
+    expect(profile.json().player.plot.id).toBe(selected.id);
+    const secondChoice = await app.inject({
+      method: "PATCH",
+      url: "/api/player/profile",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Farmer Vale", farmName: "Vale Farmer", specialization: "dinosaurs", plotId: options.json().options[1].id, clothing: "forest", hair: "short" }
+    });
+    expect(secondChoice.statusCode).toBe(400);
+  });
+
   it("requires the credential-save confirmation and rejects duplicate nicks", async () => {
     const app = createApp();
     apps.push(app);

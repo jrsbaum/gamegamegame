@@ -6,13 +6,17 @@ import { GameError, GameService } from "./game-service.js";
 import type { RepositoryBundle } from "./repositories.js";
 import { createPersistence } from "./persistence.js";
 import { attachWebSocketGateway } from "./websocket-gateway.js";
+import { buildLandOptions } from "./world-service.js";
 
 const registerSchema = z.object({ nick: z.string(), password: z.string(), credentialsSaved: z.literal(true) });
 const loginSchema = z.object({ nick: z.string(), password: z.string() });
 const profileSchema = z.object({
   name: z.string(),
   clothing: z.string().refine(isClothing),
-  hair: z.string().refine(isHairStyle)
+  hair: z.string().refine(isHairStyle),
+  farmName: z.string().max(32).optional(),
+  specialization: z.enum(["fruits", "vegetables", "dinosaurs"]).optional(),
+  plotId: z.string().optional()
 });
 
 export type ServerOptions = {
@@ -93,6 +97,12 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     } catch (error) {
       return sendDomainError(reply, error);
     }
+  });
+
+  app.get("/api/world/land-options", async (request, reply) => {
+    const player = await authenticatedPlayer(request, auth);
+    if (!player) return reply.code(401).send({ error: "unauthorized" });
+    return reply.send({ options: buildLandOptions(await persistence.repositories.players.listAll(), player.id) });
   });
 
   app.get("/api/farm", async (request, reply) => {

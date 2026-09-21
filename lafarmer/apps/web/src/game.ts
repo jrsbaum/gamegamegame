@@ -3,6 +3,8 @@ import { outfits, palette } from '@lafarmer/content-client';
 import type { PlayerProfile, RealtimeClient } from './network';
 
 const WORLD = { width: 2400, height: 1600 };
+const GRID_STEP = { x: 18, y: 12 };
+const RECONCILE_DISTANCE = 180;
 const color = (hex: string): number => Number(`0x${hex.slice(1)}`);
 
 interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onMarket?: () => void; }
@@ -16,6 +18,7 @@ export class WorldScene extends Phaser.Scene {
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private worldData!: WorldData;
   private lastMoveSent = 0;
+  private readonly pendingMoves = new Map<string, 'up' | 'down' | 'left' | 'right'>();
   private readonly remotePlayers = new Map<string, RemoteView>();
   private readonly farmItems = new Map<string, FarmView>();
 
@@ -53,7 +56,10 @@ export class WorldScene extends Phaser.Scene {
       if (message.type === 'hello' || message.type === 'move_ack') {
         const source = message.type === 'hello' ? message.snapshot as { player?: { position?: { x: number; y: number } } } : message as { player?: { position?: { x: number; y: number } } };
         const position = source.player?.position;
-        if (position) this.applyServerPosition(position.x, position.y);
+        if (position) {
+          if (message.type === 'hello') this.applyServerPosition(position.x, position.y);
+          else this.reconcileServerPosition(position.x, position.y, typeof message.actionId === 'string' ? message.actionId : undefined);
+        }
       }
     });
     this.applyServerPosition(5, 5);
@@ -64,13 +70,15 @@ export class WorldScene extends Phaser.Scene {
     const right = this.cursors.right.isDown || this.keys.D?.isDown;
     const up = this.cursors.up.isDown || this.keys.W?.isDown;
     const down = this.cursors.down.isDown || this.keys.S?.isDown;
-    const dx = Number(right) - Number(left); const dy = Number(down) - Number(up);
-    if (dx === 0 && dy === 0) { if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact(); return; }
-    const length = Math.hypot(dx, dy) || 1; const speed = 0.26 * delta;
-    this.player.x = Phaser.Math.Clamp(this.player.x + (dx / length) * speed, 60, WORLD.width - 60);
-    this.player.y = Phaser.Math.Clamp(this.player.y + (dy / length) * speed, 60, WORLD.height - 60);
+    const direction = right ? 'right' : left ? 'left' : down ? 'down' : up ? 'up' : undefined;
+    if (!direction) { if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact(); return; }
+    const elapsed = Math.min(delta, 100);
+    const stepX = direction === 'right' ? GRID_STEP.x : direction === 'left' ? -GRID_STEP.x : 0;
+    const stepY = direction === 'down' ? GRID_STEP.y : direction === 'up' ? -GRID_STEP.y : 0;
+    this.player.x = Phaser.Math.Clamp(this.player.x + stepX * elapsed / 100, 60, WORLD.width - 60);
+    this.player.y = Phaser.Math.Clamp(this.player.y + stepY * elapsed / 100, 60, WORLD.height - 60);
     this.nameTag.setPosition(this.player.x, this.player.y - 62);
-    if (time - this.lastMoveSent > 100) { this.lastMoveSent = time; this.worldData.realtime.move(dx > 0 ? 'right' : dx < 0 ? 'left' : dy > 0 ? 'down' : 'up'); }
+    if (time - this.lastMoveSent > 100) { this.lastMoveSent = time; const actionId = this.worldData.realtime.move(direction); if (actionId) this.pendingMoves.set(actionId, direction); }
     if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact();
   }
 
@@ -78,6 +86,13 @@ export class WorldScene extends Phaser.Scene {
     const worldPosition = this.gridToWorld(x, y);
     this.player.setPosition(worldPosition.x, worldPosition.y);
     this.nameTag.setPosition(this.player.x, this.player.y - 62);
+  }
+
+  private reconcileServerPosition(x: number, y: number, actionId?: string): void {
+    if (actionId) this.pendingMoves.delete(actionId);
+    const serverPosition = this.gridToWorld(x, y);
+    const drift = Phaser.Math.Distance.Between(this.player.x, this.player.y, serverPosition.x, serverPosition.y);
+    if (drift > RECONCILE_DISTANCE || this.pendingMoves.size === 0 && drift > RECONCILE_DISTANCE / 2) this.applyServerPosition(x, y);
   }
 
   private gridToWorld(x: number, y: number): { x: number; y: number } { return { x: 620 + x * 18, y: 420 + y * 12 }; }

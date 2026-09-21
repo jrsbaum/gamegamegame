@@ -14,10 +14,29 @@ export type Session = {
   expiresAt: number;
 };
 
+export type Specialization = "fruits" | "vegetables" | "dinosaurs";
+
+export type LandOption = {
+  id: string;
+  x: number;
+  y: number;
+  biome: string;
+  title: string;
+  feature: string;
+  summary: string;
+  fertility: number;
+  nearbyNeighbors: number;
+};
+
+export type LandPlot = LandOption;
+
 export type PlayerState = {
   id: string;
   accountId: string;
   name: string;
+  farmName: string;
+  specialization: Specialization | null;
+  plot: LandPlot | null;
   appearance: PlayerAppearance;
   coins: number;
   inventory: Record<string, number>;
