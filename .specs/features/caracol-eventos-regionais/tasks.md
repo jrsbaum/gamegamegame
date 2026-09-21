@@ -191,11 +191,13 @@ desde a última avaliação; persistir mudanças via `store.saveRegionalEvents`;
 - Skill: NONE
 
 **Done when**:
-- [ ] Avançar o relógio controlado do teste em 30 minutos ativa/expira eventos de um catálogo de teste de 2-3 entradas — REGCLIM-01, testado em `tests/caracol.integration.test.ts` com `harness.now.value += ...` e `manager.tickOnce()`
-- [ ] Reiniciar o processo (novo `CaracolGameManager` sobre o mesmo store, mesmo padrão do teste de sessão) mantém o evento ativo com o `expiresAt` original — REGCLIM-06, teste dedicado
-- [ ] Um cliente conectado recebe `caracol:notice` com `code: 'regional-event'` ao ativar/desativar — `waitForEvent` no teste de integração confirma o payload
-- [ ] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
-- [ ] Contagem de testes: pelo menos 3 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 3+ testes a mais que a contagem antes desta task
+- [x] Avançar o relógio controlado do teste em 30 minutos ativa/expira eventos de um catálogo de teste de 2-3 entradas — REGCLIM-01, testado em `tests/caracol.integration.test.ts` com `harness.now.value += ...` e `manager.tickOnce()`
+- [x] Reiniciar o processo (novo `CaracolGameManager` sobre o mesmo store, mesmo padrão do teste de sessão) mantém o evento ativo com o `expiresAt` original — REGCLIM-06, teste dedicado
+- [x] Um cliente conectado recebe `caracol:notice` com `code: 'regional-event'` ao ativar/desativar — `waitForEvent` no teste de integração confirma o payload
+- [x] Gate check passa: `npx vitest run tests/caracol-regional-events.test.ts tests/caracol.integration.test.ts`
+- [x] Contagem de testes: pelo menos 3 testes novos — `npx vitest run tests/caracol.integration.test.ts` reporta 3+ testes a mais que a contagem antes desta task (10 → 13)
+
+**Nota de design:** `lastRegionalEvalAt` é inicializado no construtor com `this.clock()` (não com um valor "sempre vence"), para que a primeira avaliação regional real só rode 30 minutos depois do boot — mesma cadência de qualquer avaliação seguinte, e o que os testes de "avança 30 min" esperam. Isso não muda a garantia de persistência (REGCLIM-06): um evento já ativo nunca é tocado por uma nova avaliação a menos que expire de verdade (regra de não empilhar/não interromper do motor).
 
 **Tests**: integration
 **Gate**: full

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { io as createClient, type Socket } from 'socket.io-client';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, InterServerEvents, ServerToClientEvents, SocketData } from '../shared/protocol';
-import type { CaracolActionResult, CaracolCosmeticSlot, CaracolCosmeticWearer, CaracolHistoryResult, CaracolStateView } from '../shared/caracol';
+import type { CaracolActionResult, CaracolCosmeticSlot, CaracolCosmeticWearer, CaracolHistoryResult, CaracolNoticePayload, CaracolRegionalEventDefinition, CaracolStateView } from '../shared/caracol';
 import { createCaracolManager, type CaracolGameManager } from '../server/caracol/game';
 import { MemoryCaracolStore } from '../server/caracol/store';
 
@@ -38,11 +38,16 @@ function waitForEvent<T>(socket: TestSocket, event: keyof ServerToClientEvents, 
   });
 }
 
-async function createHarness(store: MemoryCaracolStore = new MemoryCaracolStore()): Promise<Harness> {
+interface HarnessOptions {
+  regionalEventsCatalog?: readonly CaracolRegionalEventDefinition[];
+  random?: () => number;
+}
+
+async function createHarness(store: MemoryCaracolStore = new MemoryCaracolStore(), options: HarnessOptions = {}): Promise<Harness> {
   const httpServer = createServer();
   const ioServer = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, { cors: { origin: true } });
   const now = { value: Date.now() };
-  const manager = createCaracolManager(ioServer, { store, clock: () => now.value, autoTick: false });
+  const manager = createCaracolManager(ioServer, { store, clock: () => now.value, autoTick: false, ...options });
   ioServer.on('connection', (socket) => manager.bindSocket(socket));
   await manager.ready();
   await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
@@ -112,6 +117,35 @@ function equipCosmetic(client: TestSocket, wearer: CaracolCosmeticWearer, slot: 
 
 function history(client: TestSocket, beforeId: string | null = null): Promise<CaracolHistoryResult> {
   return new Promise((resolve) => client.emit('caracol:history', { beforeId, limit: 20 }, resolve));
+}
+
+const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const REGIONAL_TEST_UF_SAZONAL = 'AC';
+const REGIONAL_TEST_UF_RARO = 'RR';
+const REGIONAL_RARO_DURATION_MS = 30 * 60_000;
+
+function regionalTestCatalog(): CaracolRegionalEventDefinition[] {
+  return [
+    {
+      id: 'ac-teste-sazonal',
+      uf: REGIONAL_TEST_UF_SAZONAL,
+      nome: 'Chuva de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'precoConta', multiplicador: 2 },
+    },
+    {
+      id: 'rr-teste-raro',
+      uf: REGIONAL_TEST_UF_RARO,
+      nome: 'Seca de teste',
+      perfil: 'raro',
+      mesesElegiveis: ALL_MONTHS,
+      chancePorHoraNaJanela: 1,
+      duracaoMs: REGIONAL_RARO_DURATION_MS,
+      jogador: { tipo: 'saldoInstantaneo', delta: 5 },
+    },
+  ];
 }
 
 afterEach(async () => {
@@ -487,5 +521,55 @@ describe('mundo global do Caracol', () => {
     const persisted = await harness.store.loadSnapshot();
     expect(persisted.accounts[0]?.cosmeticOwnedItemIds).toContain('cap-bucket');
     expect(persisted.accounts[0]?.cosmeticOutfit.cap).toBe('cap-bucket');
+  });
+});
+
+describe('clima regional do Caracol', () => {
+  it('avança 30 minutos, ativa um evento elegível e o expira quando a duração passa', async () => {
+    const harness = await createHarness(undefined, { regionalEventsCatalog: regionalTestCatalog(), random: () => 0 });
+
+    harness.now.value += 30 * 60_000;
+    const activatedAt = harness.now.value;
+    await harness.manager.tickOnce();
+    const afterActivation = (await harness.store.loadSnapshot()).regionalEvents;
+    const sazonalRecord = afterActivation.find((record) => record.uf === REGIONAL_TEST_UF_SAZONAL);
+    const raroRecord = afterActivation.find((record) => record.uf === REGIONAL_TEST_UF_RARO);
+    expect(sazonalRecord?.activeEventId).toBe('ac-teste-sazonal');
+    expect(raroRecord?.activeEventId).toBe('rr-teste-raro');
+    expect(raroRecord?.expiresAt).toBe(activatedAt + REGIONAL_RARO_DURATION_MS);
+    const expiresAt = raroRecord!.expiresAt!;
+
+    harness.now.value = expiresAt;
+    await harness.manager.tickOnce();
+    const afterExpiration = (await harness.store.loadSnapshot()).regionalEvents;
+    expect(afterExpiration.find((record) => record.uf === REGIONAL_TEST_UF_RARO)?.activeEventId).toBeNull();
+    expect(afterExpiration.find((record) => record.uf === REGIONAL_TEST_UF_SAZONAL)?.activeEventId).toBe('ac-teste-sazonal');
+  });
+
+  it('mantém o evento ativo com o expiresAt original depois de reiniciar o processo (mesmo store)', async () => {
+    const catalog = regionalTestCatalog();
+    const harness = await createHarness(undefined, { regionalEventsCatalog: catalog, random: () => 0 });
+    harness.now.value += 30 * 60_000;
+    await harness.manager.tickOnce();
+    const before = (await harness.store.loadSnapshot()).regionalEvents.find((record) => record.uf === REGIONAL_TEST_UF_RARO);
+    expect(before?.activeEventId).toBe('rr-teste-raro');
+
+    const restarted = await createHarness(harness.store, { regionalEventsCatalog: catalog, random: () => 0 });
+    const after = (await restarted.store.loadSnapshot()).regionalEvents.find((record) => record.uf === REGIONAL_TEST_UF_RARO);
+    expect(after?.activeEventId).toBe('rr-teste-raro');
+    expect(after?.expiresAt).toBe(before?.expiresAt);
+  });
+
+  it('transmite caracol:notice com code "regional-event" quando um evento ativa', async () => {
+    const harness = await createHarness(undefined, { regionalEventsCatalog: regionalTestCatalog(), random: () => 0 });
+    const player = await connectClient(harness.address);
+    expect((await register(player, 'Meteorologista')).ok).toBe(true);
+
+    const notice = waitForEvent<CaracolNoticePayload>(player, 'caracol:notice', (payload) => payload.code === 'regional-event');
+    harness.now.value += 30 * 60_000;
+    await harness.manager.tickOnce();
+    const payload = await notice;
+    expect(payload.code).toBe('regional-event');
+    expect(payload.message).toContain('Chuva de teste');
   });
 });

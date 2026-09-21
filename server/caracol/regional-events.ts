@@ -34,7 +34,8 @@ export const REGIONAL_EVENTS_MAX_ACTIVE = 4;
  */
 const EVALUATION_FRACTION_OF_HOUR = 0.5;
 
-const BRAZIL_UF_CODES = [
+/** As 27 UFs (26 estados + DF). Fonte única também usada pelo manager para inicializar `regionalEventsByUf`. */
+export const REGIONAL_UF_CODES = [
   'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
   'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
 ] as const;
@@ -248,7 +249,7 @@ export function validateCatalog(catalog: readonly CaracolRegionalEventDefinition
       throw new Error(`Catálogo de eventos regionais inválido: ${label} tem id ausente ou duplicado.`);
     }
     seenIds.add(event.id);
-    if (!BRAZIL_UF_CODES.includes(event.uf as typeof BRAZIL_UF_CODES[number])) {
+    if (!REGIONAL_UF_CODES.includes(event.uf as typeof REGIONAL_UF_CODES[number])) {
       throw new Error(`Catálogo de eventos regionais inválido: ${label} tem uf inválida ('${event.uf}').`);
     }
     if (!Array.isArray(event.mesesElegiveis) || event.mesesElegiveis.length === 0 || event.mesesElegiveis.some((month) => !Number.isInteger(month) || month < 1 || month > 12)) {

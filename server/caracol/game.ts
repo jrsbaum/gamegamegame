@@ -40,7 +40,9 @@ import {
   CARACOL_STARTING_COINS,
   emptyCaracolOutfit,
   type CaracolCity,
+  type CaracolRegionalEventDefinition,
 } from '../../shared/caracol';
+import { CARACOL_REGIONAL_EVENTS_CATALOG } from '../../shared/caracol-regional-events';
 import type {
   ClientToServerEvents,
   InterServerEvents,
@@ -64,6 +66,13 @@ import {
   type CaracolWorldRecord,
 } from './store';
 import { CaracolPushService } from './push';
+import {
+  evaluate as evaluateRegionalEventsPlan,
+  emptyRegionalEventState,
+  validateCatalog as validateRegionalEventsCatalog,
+  REGIONAL_UF_CODES,
+  type RegionalEventState,
+} from './regional-events';
 
 type CaracolSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type CaracolIo = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -79,6 +88,8 @@ interface CaracolManagerOptions {
   /** Sorteio da roleta; injetável como o relógio para os testes escolherem o item. */
   random?: () => number;
   autoTick?: boolean;
+  /** Catálogo de eventos regionais; injetável para teste (produção usa `CARACOL_REGIONAL_EVENTS_CATALOG`). */
+  regionalEventsCatalog?: readonly CaracolRegionalEventDefinition[];
 }
 
 /**
@@ -112,6 +123,8 @@ const APPROACHING_ETA_MS = 10 * 60_000;
 const TICK_MS = 1_000;
 const BANANA_SPEED_FACTOR = 1.5;
 const BOOMERANG_SHARE_DIVISOR = 5;
+/** Cadência da reavaliação do clima regional (REGCLIM-01, spec). */
+const REGIONAL_EVAL_INTERVAL_MS = 30 * 60_000;
 
 export class CaracolGameManager {
   private readonly store: CaracolStore;
@@ -125,6 +138,10 @@ export class CaracolGameManager {
   private readonly approachingSent = new Set<string>();
   private readonly push: CaracolPushService;
   private readonly readyPromise: Promise<void>;
+  private readonly regionalEventsCatalog: readonly CaracolRegionalEventDefinition[];
+  private regionalEventsByUf = new Map<string, RegionalEventState>();
+  /** Definido no boot (constructor); a primeira avaliação real só roda 30min depois. */
+  private lastRegionalEvalAt: number;
   private world!: CaracolWorldRecord;
   private tickTimer: NodeJS.Timeout | null = null;
   private tickInFlight = false;
@@ -134,6 +151,9 @@ export class CaracolGameManager {
     this.store = options.store ?? createCaracolStore();
     this.clock = options.clock ?? (() => Date.now());
     this.random = options.random ?? Math.random;
+    this.regionalEventsCatalog = options.regionalEventsCatalog ?? CARACOL_REGIONAL_EVENTS_CATALOG;
+    validateRegionalEventsCatalog(this.regionalEventsCatalog);
+    this.lastRegionalEvalAt = this.clock();
     this.push = new CaracolPushService((endpoint) => this.removePushSubscription(endpoint));
     this.readyPromise = this.initialize();
     if (options.autoTick !== false) {
@@ -160,6 +180,15 @@ export class CaracolGameManager {
     for (const effect of snapshot.effects) this.effects.set(effect.id, effect);
     this.sessions.clear();
     for (const session of snapshot.sessions) this.sessions.set(session.tokenHash, session.accountId);
+    this.regionalEventsByUf = new Map(REGIONAL_UF_CODES.map((uf) => [uf, emptyRegionalEventState()]));
+    for (const record of snapshot.regionalEvents) {
+      this.regionalEventsByUf.set(record.uf, {
+        activeEventId: record.activeEventId,
+        activatedAt: record.activatedAt,
+        expiresAt: record.expiresAt,
+        lastActivatedAt: record.lastActivatedAt,
+      });
+    }
 
     await this.tickInternal(this.clock(), false);
   }
@@ -1141,6 +1170,28 @@ export class CaracolGameManager {
     }
   }
 
+  /**
+   * Reavalia o clima regional a cada 30 minutos (REGCLIM-01): decide quais
+   * estados ativam/desativam evento, persiste só o que mudou e avisa a
+   * ativação/desativação pelo mesmo canal de aviso global (REGCLIM-05).
+   */
+  private async evaluateRegionalEvents(now: number): Promise<void> {
+    if (now - this.lastRegionalEvalAt < REGIONAL_EVAL_INTERVAL_MS) return;
+    this.lastRegionalEvalAt = now;
+    const plan = evaluateRegionalEventsPlan(this.regionalEventsCatalog, now, this.regionalEventsByUf, this.random);
+    this.regionalEventsByUf = plan.nextByUf;
+    if (plan.activations.length === 0 && plan.deactivations.length === 0) return;
+
+    const changedUfs = new Set([...plan.activations.map((change) => change.uf), ...plan.deactivations.map((change) => change.uf)]);
+    const records = Array.from(changedUfs, (uf) => {
+      const state = plan.nextByUf.get(uf)!;
+      return { uf, activeEventId: state.activeEventId, activatedAt: state.activatedAt, expiresAt: state.expiresAt, lastActivatedAt: state.lastActivatedAt };
+    });
+    await this.store.saveRegionalEvents(records);
+    for (const { uf, event } of plan.activations) this.ioNotice('regional-event', `${event.nome} começou em ${uf}.`);
+    for (const { uf, event } of plan.deactivations) this.ioNotice('regional-event', `${event.nome} terminou em ${uf}.`);
+  }
+
   private async runTick(): Promise<void> {
     if (this.tickInFlight) return;
     this.tickInFlight = true;
@@ -1158,6 +1209,7 @@ export class CaracolGameManager {
     const elapsedMs = Math.max(0, now - this.world.lastTickAt);
     this.world.lastTickAt = now;
     await this.expireEffects(now);
+    await this.evaluateRegionalEvents(now);
     for (const account of this.accounts.values()) {
       if (account.sockets.size === 0) continue;
       const gainedIntervals = this.accrueCoins(account, now, true);
