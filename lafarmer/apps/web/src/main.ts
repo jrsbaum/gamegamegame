@@ -154,7 +154,7 @@ async function openWorldMapPanel(): Promise<void> {
     try { worldOverview = (await getWorldOverview(authToken)).regions; } catch { if (status) status.textContent = 'Não foi possível carregar o mapa agora.'; return; }
   }
   const canvas = root.querySelector<HTMLDivElement>('#world-map-live-canvas'); if (!canvas) return;
-  if (!liveWorldMapGame) liveWorldMapGame = createMapPreview(canvas, { regions: worldOverview, selectedId: currentRegionId || profile.plotId, interactive: false, presence: connectedPresence(), onSelect: () => undefined });
+  if (!liveWorldMapGame) { canvas.textContent = ''; liveWorldMapGame = createMapPreview(canvas, { regions: worldOverview, selectedId: currentRegionId || profile.plotId, interactive: false, presence: connectedPresence(), onSelect: () => undefined }); }
   else updateMapPreviewPresence(liveWorldMapGame, connectedPresence());
 }
 
