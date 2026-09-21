@@ -1,20 +1,20 @@
 import { randomUUID } from "node:crypto";
 import {
   getContentDefinition, ONLINE_COINS_PER_HOUR, OFFLINE_COINS_PER_HOUR,
-  isKnownItemId, isWorldTileWalkable, WORLD_HEIGHT_TILES, WORLD_WIDTH_TILES, type ContentDefinition, type Quality
+  isKnownItemId, isWorldTileWalkable, ORIGIN_SHOP_OFFERS, WORLD_HEIGHT_TILES, WORLD_WIDTH_TILES, type ContentDefinition, type Quality
 } from "@lafarmer/content";
-import type { Direction, FarmItem, FarmItemView, MarketListing, MoveCommand, MoveResult, PlayerState, WalletEntry, WorldSnapshot } from "./domain.js";
-import type { FarmRepository, MarketRepository, PlayerRepository, WalletRepository } from "./repositories.js";
+import type { Direction, FarmItem, FarmItemView, FarmStructure, FarmStructureType, MarketListing, MoveCommand, MoveResult, PlayerState, WalletEntry, WorldSnapshot } from "./domain.js";
+import type { FarmRepository, MarketRepository, PlayerRepository, StructureRepository, WalletRepository } from "./repositories.js";
 
 const WORLD_BOUNDS = { minX: 0, maxX: WORLD_WIDTH_TILES - 1, minY: 0, maxY: WORLD_HEIGHT_TILES - 1 } as const;
 const OFFLINE_CAP_SECONDS = 24 * 60 * 60;
 const ONLINE_TICK_MS = 60_000;
 const ONLINE_ACTIVITY_WINDOW_MS = 90_000;
 
-export type GameRepositories = { players: PlayerRepository; farm: FarmRepository; market: MarketRepository; wallet: WalletRepository };
+export type GameRepositories = { players: PlayerRepository; farm: FarmRepository; structures: StructureRepository; market: MarketRepository; wallet: WalletRepository };
 
 export class GameError extends Error {
-  constructor(public readonly code: "player_not_found" | "invalid_action" | "invalid_direction" | "invalid_content" | "invalid_position" | "not_ready" | "insufficient_coins" | "farm_item_not_found" | "listing_not_found" | "invalid_quantity" | "invalid_price" | "cannot_buy_own_listing" | "invalid_animal" | "inventory_full" | "invalid_quality") { super(code); }
+  constructor(public readonly code: "player_not_found" | "invalid_action" | "invalid_direction" | "invalid_content" | "invalid_position" | "not_ready" | "insufficient_coins" | "insufficient_inputs" | "farm_item_not_found" | "listing_not_found" | "invalid_quantity" | "invalid_price" | "cannot_buy_own_listing" | "invalid_animal" | "inventory_full" | "invalid_quality" | "specialization_locked" | "structure_required" | "structure_full" | "invalid_structure" | "not_at_connection" | "region_not_found" | "not_neighbor") { super(code); }
 }
 
 type OfflineProgress = { coins: number; completedCycles: number; blockedByCapacity: number };
@@ -35,11 +35,12 @@ export class GameService {
     const progress = await this.materializeOwner(player);
     const returnedProgress = this.offlineProgress.get(playerId) ?? { coins: 0, ...progress };
     this.offlineProgress.delete(playerId);
-    const [persistedPlayers, farmItems, listings] = await Promise.all([this.repositories.players.listAll(), this.repositories.farm.listAll(), this.repositories.market.listActive()]);
+    const [persistedPlayers, farmItems, structures, listings] = await Promise.all([this.repositories.players.listAll(), this.repositories.farm.listAll(), this.repositories.structures.listAll(), this.repositories.market.listActive()]);
     const players = persistedPlayers.map((candidate) => this.activePlayers.get(candidate.id) ?? candidate);
+    const regionId = player.currentRegionId ?? player.homeRegionId;
     return {
-      bounds: WORLD_BOUNDS, player, players: players.filter((candidate) => candidate.id !== playerId),
-      farmItems: farmItems.map((item) => this.toView(item)), listings,
+      bounds: WORLD_BOUNDS, player, players: players.filter((candidate) => candidate.id !== playerId && candidate.currentRegionId === regionId),
+      farmItems: farmItems.filter((item) => item.regionId === regionId).map((item) => this.toView(item)), structures: structures.filter((structure) => structure.regionId === regionId), listings,
       offlineProgress: returnedProgress
     };
   }
@@ -83,7 +84,9 @@ export class GameService {
     if (command.direction === "down") position.y += 1;
     if (command.direction === "left") position.x -= 1;
     if (command.direction === "right") position.x += 1;
-    const nextPosition = isWorldTileWalkable(position.x, position.y) ? position : player.position;
+    const regionId = player.currentRegionId ?? player.homeRegionId;
+    const structures = await this.repositories.structures.listByOwnerId(playerId);
+    const nextPosition = isWorldTileWalkable(position.x, position.y) && !structures.some((structure) => structure.regionId === regionId && insideStructureFootprint(structure, position.x, position.y)) ? position : player.position;
     const updated: PlayerState = { ...player, lastActiveAt: this.now(), position: nextPosition };
     await this.savePlayer(updated, false);
     const result: MoveResult = { actionId: command.actionId, accepted: true, player: updated };
@@ -95,15 +98,15 @@ export class GameService {
     const definition = getContentDefinition(input.contentId);
     if (!definition || definition.kind !== "crop") throw new GameError("invalid_content");
     const player = await this.requirePlayer(playerId);
+    if (!player.specialization || definition.specialization !== player.specialization) throw new GameError("specialization_locked");
     await this.materializeOwner(player);
     const x = input.x ?? player.position.x;
     const y = input.y ?? player.position.y;
     if (!validPosition(x, y, player)) throw new GameError("invalid_position");
-    if (player.coins < definition.purchaseCost) throw new GameError("insufficient_coins");
-    const item = createFarmItem(playerId, definition, this.now(), { x, y });
+    const supplied = consumeInventory(player, definition.inputs[0]?.itemId, definition.inputs[0]?.quantity ?? 1);
+    const item = createFarmItem(playerId, definition, this.now(), { x, y }, player.currentRegionId ?? player.homeRegionId ?? "region-center", null);
+    await this.savePlayer({ ...supplied, lastActiveAt: this.now() });
     await this.repositories.farm.insert(item);
-    const updated = await this.debitCoins(player, definition.purchaseCost, "plant", item.id);
-    void updated;
     return this.toView(item);
   }
 
@@ -111,14 +114,75 @@ export class GameService {
     const definition = getContentDefinition(input.contentId);
     if (!definition || (definition.kind !== "animal" && definition.kind !== "dinosaur")) throw new GameError("invalid_animal");
     const player = await this.requirePlayer(playerId);
+    if (!player.specialization || definition.specialization !== player.specialization) throw new GameError("specialization_locked");
+    if (definition.id !== "dinosaur") throw new GameError("invalid_animal");
     await this.materializeOwner(player);
-    const x = input.x ?? player.position.x; const y = input.y ?? player.position.y;
-    if (!validPosition(x, y, player)) throw new GameError("invalid_position");
-    if (player.coins < definition.purchaseCost) throw new GameError("insufficient_coins");
-    const item = createFarmItem(playerId, definition, this.now(), { x, y });
+    const structures = await this.repositories.structures.listByOwnerId(playerId);
+    const enclosure = structures.find((structure) => structure.regionId === (player.currentRegionId ?? player.homeRegionId) && structure.type === "dinosaur_enclosure");
+    if (!enclosure) throw new GameError("structure_required");
+    const housed = (await this.repositories.farm.listByOwnerId(playerId)).filter((item) => item.structureId === enclosure.id).length;
+    if (housed >= enclosure.capacity) throw new GameError("structure_full");
+    const x = input.x ?? enclosure.position.x; const y = input.y ?? enclosure.position.y;
+    if (!insideStructure(enclosure, x, y) || !isWorldTileWalkable(Math.round(x), Math.round(y))) throw new GameError("invalid_position");
+    const sourceItem = (player.inventory["dinosaur-egg"] ?? 0) > 0 ? "dinosaur-egg" : (player.inventory["dinosaur-fossil"] ?? 0) > 0 ? "dinosaur-fossil" : null;
+    if (!sourceItem) throw new GameError("insufficient_inputs");
+    const supplied = consumeInventory(player, sourceItem, 1);
+    const item = createFarmItem(playerId, definition, this.now(), { x, y }, enclosure.regionId, enclosure.id);
+    await this.savePlayer({ ...supplied, lastActiveAt: this.now() });
     await this.repositories.farm.insert(item);
-    await this.debitCoins(player, definition.purchaseCost, "adopt", item.id);
     return this.toView(item);
+  }
+
+  async buildStructure(playerId: string, input: { type: FarmStructureType; x?: number; y?: number }): Promise<FarmStructure> {
+    const player = await this.requirePlayer(playerId);
+    const costs: Record<FarmStructureType, { cost: number; width: number; height: number; capacity: number }> = {
+      house: { cost: 0, width: 5, height: 3, capacity: 0 }, field: { cost: 100, width: 4, height: 3, capacity: 0 }, orchard: { cost: 150, width: 5, height: 4, capacity: 0 }, animal_pen: { cost: 300, width: 6, height: 5, capacity: 4 }, dinosaur_enclosure: { cost: 500, width: 8, height: 6, capacity: 3 }
+    };
+    const spec = costs[input.type];
+    if (!spec) throw new GameError("invalid_structure");
+    const regionId = player.currentRegionId ?? player.homeRegionId;
+    if (!regionId) throw new GameError("region_not_found");
+    const x = Math.round(input.x ?? player.position.x); const y = Math.round(input.y ?? player.position.y);
+    if (Math.abs(x - player.position.x) > 8 || Math.abs(y - player.position.y) > 8) throw new GameError("invalid_position");
+    for (let yy = y; yy < y + spec.height; yy++) for (let xx = x; xx < x + spec.width; xx++) if (!isWorldTileWalkable(xx, yy)) throw new GameError("invalid_position");
+    const existing = await this.repositories.structures.listByOwnerId(playerId);
+    if (existing.some((structure) => structure.regionId === regionId && rectanglesOverlap(structure, x, y, spec.width, spec.height))) throw new GameError("invalid_structure");
+    if (player.coins < spec.cost) throw new GameError("insufficient_coins");
+    const structure: FarmStructure = { id: randomUUID(), ownerId: playerId, regionId, type: input.type, footprint: [[x, y], [x + spec.width, y], [x + spec.width, y + spec.height], [x, y + spec.height]], capacity: spec.capacity, cost: spec.cost, state: "built", position: { x: x + Math.floor(spec.width / 2), y: y + Math.floor(spec.height / 2) } };
+    await this.repositories.structures.insert(structure);
+    if (spec.cost > 0) await this.debitCoins(player, spec.cost, "plant", structure.id);
+    return structure;
+  }
+
+  async originOffers(playerId: string) {
+    const player = await this.requirePlayer(playerId);
+    return ORIGIN_SHOP_OFFERS.filter((offer) => offer.specialization === player.specialization);
+  }
+
+  async buyOriginOffer(playerId: string, offerId: string): Promise<{ offerId: string; inventory: Record<string, number>; coins: number }> {
+    const player = await this.requirePlayer(playerId);
+    const offer = ORIGIN_SHOP_OFFERS.find((candidate) => candidate.id === offerId);
+    if (!offer || offer.specialization !== player.specialization) throw new GameError("specialization_locked");
+    if (player.coins < offer.cost) throw new GameError("insufficient_coins");
+    const updated = addInventory({ ...player, coins: player.coins - offer.cost }, offer.itemId, 1, "common");
+    await this.savePlayer({ ...updated, lastActiveAt: this.now() });
+    await this.recordWallet(updated, -offer.cost, "plant", offer.id);
+    return { offerId, inventory: updated.inventory, coins: updated.coins };
+  }
+
+  async enterRegion(playerId: string, targetRegionId: string): Promise<PlayerState> {
+    const player = await this.requirePlayer(playerId);
+    const currentRegionId = player.currentRegionId ?? player.homeRegionId;
+    if (!currentRegionId) throw new GameError("region_not_found");
+    const target = (await this.repositories.players.listAll()).find((candidate) => candidate.homeRegionId === targetRegionId);
+    if (!target) throw new GameError("region_not_found");
+    const { getConnection } = await import("./world-service.js");
+    const connection = getConnection(currentRegionId, targetRegionId);
+    if (!connection) throw new GameError("not_neighbor");
+    if (Math.abs(player.position.x - connection.entry.x) > 3 || Math.abs(player.position.y - connection.entry.y) > 3) throw new GameError("not_at_connection");
+    const updated = { ...player, currentRegionId: targetRegionId, position: { x: 8, y: 8 }, lastActiveAt: this.now() };
+    await this.savePlayer(updated);
+    return updated;
   }
 
   async care(playerId: string, itemId: string): Promise<FarmItemView> {
@@ -294,13 +358,13 @@ export class GameService {
 
 export const ONLINE_TICK_INTERVAL_MS = ONLINE_TICK_MS;
 
-function createFarmItem(ownerId: string, definition: ContentDefinition, now: number, position: { x: number; y: number }): FarmItem {
+function createFarmItem(ownerId: string, definition: ContentDefinition, now: number, position: { x: number; y: number }, regionId: string, structureId: string | null): FarmItem {
   const growthSeconds = definition.stages.slice(1).reduce((sum, stage) => sum + stage.durationSeconds, 0);
   return {
     id: randomUUID(), ownerId, contentId: definition.id, plantedAt: now, lastCareAt: null, lastProcessedAt: now,
     pendingQuantity: 0, nextProductionAt: definition.cycleSeconds === null ? null : now + growthSeconds * 1_000,
     quality: "common", careState: "awaiting-care", behaviorState: definition.behaviorProfile.initialState,
-    appearanceVariantId: definition.visualVariants[0], position
+    appearanceVariantId: definition.visualVariants[0], regionId, structureId, position
   };
 }
 
@@ -364,6 +428,23 @@ function pickAvailableQuality(player: PlayerState, itemId: string): Quality {
 function freeInventorySlots(player: PlayerState): number { return Math.max(0, player.inventoryCapacity - inventoryCount(player.inventory)); }
 function inventoryCount(inventory: Record<string, number>): number { return Object.values(inventory).reduce((sum, quantity) => sum + quantity, 0); }
 function validPosition(x: number, y: number, player: PlayerState): boolean { return Number.isFinite(x) && Number.isFinite(y) && x >= 0 && x < WORLD_WIDTH_TILES && y >= 0 && y < WORLD_HEIGHT_TILES && Math.abs(x - player.position.x) <= 8 && Math.abs(y - player.position.y) <= 8 && isWorldTileWalkable(Math.round(x), Math.round(y)); }
+function insideStructure(structure: FarmStructure, x: number, y: number): boolean {
+  const xs = structure.footprint.map((point) => point[0]); const ys = structure.footprint.map((point) => point[1]);
+  return x >= Math.min(...xs) + 1 && x < Math.max(...xs) - 1 && y >= Math.min(...ys) + 1 && y < Math.max(...ys) - 1;
+}
+
+function consumeInventory(player: PlayerState, itemId: string | undefined, quantity: number): PlayerState {
+  if (!itemId || (player.inventory[itemId] ?? 0) < quantity) throw new GameError("insufficient_inputs");
+  return removeInventory(player, itemId, quantity, "common");
+}
+function rectanglesOverlap(structure: FarmStructure, x: number, y: number, width: number, height: number): boolean {
+  const xs = structure.footprint.map((point) => point[0]); const ys = structure.footprint.map((point) => point[1]);
+  return x < Math.max(...xs) && x + width > Math.min(...xs) && y < Math.max(...ys) && y + height > Math.min(...ys);
+}
+function insideStructureFootprint(structure: FarmStructure, x: number, y: number): boolean {
+  const xs = structure.footprint.map((point) => point[0]); const ys = structure.footprint.map((point) => point[1]);
+  return x >= Math.min(...xs) && x < Math.max(...xs) && y >= Math.min(...ys) && y < Math.max(...ys);
+}
 function isDirection(value: string): value is Direction { return value === "up" || value === "down" || value === "left" || value === "right"; }
 function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }
 

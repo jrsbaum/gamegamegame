@@ -8,7 +8,8 @@ export interface PlayerProfile {
   hair: 'short' | 'long';
 }
 
-export type LandOption = { id: string; x: number; y: number; biome: string; title: string; feature: string; summary: string; fertility: number; nearbyNeighbors: number };
+export type LandOption = { id: string; regionId: string; x: number; y: number; biome: string; title: string; feature: string; summary: string; fertility: number; nearbyNeighbors: number; polygon: readonly [number, number][]; connectionId: string | null; locked: boolean };
+export type WorldOverviewRegion = Omit<LandOption, 'id' | 'x' | 'y' | 'nearbyNeighbors' | 'locked' | 'title'> & { id: string; name: string; status: 'occupied' | 'frontier' | 'locked'; occupiedBy: string | null };
 
 export type ServerPlayer = {
   id: string;
@@ -16,6 +17,8 @@ export type ServerPlayer = {
   farmName: string;
   specialization: PlayerProfile['specialization'];
   plot: LandOption | null;
+  homeRegionId?: string | null;
+  currentRegionId?: string | null;
   coins: number;
   appearance: { clothing: PlayerProfile['outfit']; hair: PlayerProfile['hair'] };
   position?: { x: number; y: number };
@@ -40,10 +43,18 @@ export function register(nick: string, password: string): Promise<AuthResult> {
 export function login(nick: string, password: string): Promise<AuthResult> {
   return api<AuthResult>('/api/auth/login', { method: 'POST', body: JSON.stringify({ nick, password }) });
 }
+export function getMe(token: string): Promise<{ player: ServerPlayer }> { return api<{ player: ServerPlayer }>('/api/me', { method: 'GET', headers: { authorization: `Bearer ${token}` } }); }
 
 export function getLandOptions(token: string): Promise<{ options: LandOption[] }> {
   return api<{ options: LandOption[] }>('/api/world/land-options', { method: 'GET', headers: { authorization: `Bearer ${token}` } });
 }
+
+export function getWorldOverview(token: string): Promise<{ regions: WorldOverviewRegion[] }> { return api<{ regions: WorldOverviewRegion[] }>('/api/world/overview', { method: 'GET', headers: { authorization: `Bearer ${token}` } }); }
+export function reserveRegion(token: string, regionId: string): Promise<{ regionId: string; expiresAt: number }> { return api<{ regionId: string; expiresAt: number }>('/api/world/region/reserve', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ regionId }) }); }
+export type OriginOffer = { id: string; displayName: string; itemId: string; specialization: 'fruits' | 'vegetables' | 'dinosaurs'; cost: number; kind: string };
+export function getOriginShop(token: string): Promise<{ offers: OriginOffer[] }> { return api<{ offers: OriginOffer[] }>('/api/shop/origin', { method: 'GET', headers: { authorization: `Bearer ${token}` } }); }
+export function buyOriginOffer(token: string, offerId: string): Promise<{ offerId: string; inventory: Record<string, number>; coins: number }> { return api<{ offerId: string; inventory: Record<string, number>; coins: number }>(`/api/shop/origin/${encodeURIComponent(offerId)}/buy`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: '{}' }); }
+export function buildStructure(token: string, type: string): Promise<{ structure: { id: string; type: string } }> { return api<{ structure: { id: string; type: string } }>('/api/farm/structures', { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ type }) }); }
 
 export function updateProfile(token: string, profile: Pick<PlayerProfile, 'name' | 'farmName' | 'specialization' | 'plotId' | 'outfit' | 'hair'>): Promise<{ player: ServerPlayer }> {
   return api<{ player: ServerPlayer }>('/api/player/profile', { method: 'PATCH', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ name: profile.name, farmName: profile.farmName, specialization: profile.specialization, plotId: profile.plotId, clothing: profile.outfit, hair: profile.hair }) });

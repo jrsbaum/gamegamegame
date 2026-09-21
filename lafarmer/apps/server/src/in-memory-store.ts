@@ -1,5 +1,5 @@
-import type { Account, FarmItem, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
-import type { AccountRepository, FarmRepository, MarketListingResult, MarketPurchaseResult, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, WalletRepository } from "./repositories.js";
+import type { Account, FarmItem, FarmStructure, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
+import type { AccountRepository, FarmRepository, MarketListingResult, MarketPurchaseResult, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, StructureRepository, WalletRepository } from "./repositories.js";
 
 class InMemoryAccounts implements AccountRepository {
   private readonly byId = new Map<string, Account>();
@@ -85,6 +85,14 @@ class InMemoryFarm implements FarmRepository {
   async delete(id: string): Promise<void> { this.items.delete(id); }
 }
 
+class InMemoryStructures implements StructureRepository {
+  private readonly structures = new Map<string, FarmStructure>();
+  async listByOwnerId(ownerId: string): Promise<FarmStructure[]> { return [...this.structures.values()].filter((structure) => structure.ownerId === ownerId); }
+  async listAll(): Promise<FarmStructure[]> { return [...this.structures.values()]; }
+  async insert(structure: FarmStructure): Promise<void> { this.structures.set(structure.id, structure); }
+  async update(structure: FarmStructure): Promise<void> { this.structures.set(structure.id, structure); }
+}
+
 class InMemoryMarket implements MarketRepository {
   private readonly listings = new Map<string, MarketListing>();
   private readonly purchases = new Map<string, MarketPurchaseResult>();
@@ -161,6 +169,7 @@ export function createInMemoryRepositories(): RepositoryBundle {
     sessions: new InMemorySessions(),
     players,
     farm: new InMemoryFarm(),
+    structures: new InMemoryStructures(),
     market: new InMemoryMarket(players),
     wallet: new InMemoryWallet()
   };

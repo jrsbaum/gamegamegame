@@ -68,7 +68,7 @@ describe("LaFarmer server", () => {
     const token = register.json().token as string;
     const options = await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${token}` } });
     expect(options.statusCode).toBe(200);
-    expect(options.json().options).toHaveLength(3);
+    expect(options.json().options).toHaveLength(5);
     const selected = options.json().options[0];
     const profile = await app.inject({
       method: "PATCH",
@@ -184,8 +184,8 @@ describe("LaFarmer server", () => {
   it("keeps online and offline wallet accrual on the same minute boundary", async () => {
     let now = 1_700_000_000_000;
     const repositories = createInMemoryRepositories();
-    await repositories.players.insert({ id: "wallet-player", accountId: "wallet-account", name: "Wallet", farmName: "", specialization: null, plot: null, appearance: { clothing: "forest", hair: "short" }, coins: 0, inventory: {}, inventoryQualities: {}, inventoryCapacity: 50, lastActiveAt: now, position: { x: 5, y: 5 } });
-    const game = new GameService({ players: repositories.players, farm: repositories.farm, market: repositories.market, wallet: repositories.wallet }, () => now);
+    await repositories.players.insert({ id: "wallet-player", accountId: "wallet-account", name: "Wallet", farmName: "", specialization: null, plot: null, homeRegionId: null, currentRegionId: null, appearance: { clothing: "forest", hair: "short" }, coins: 0, inventory: {}, inventoryQualities: {}, inventoryCapacity: 50, lastActiveAt: now, position: { x: 5, y: 5 } });
+    const game = new GameService({ players: repositories.players, farm: repositories.farm, structures: repositories.structures, market: repositories.market, wallet: repositories.wallet }, () => now);
     game.markOnlineActivity("wallet-player");
     now += 60_000;
     expect((await game.onlineTick("wallet-player")).coins).toBe(2);
@@ -203,7 +203,9 @@ describe("LaFarmer server", () => {
     expect(buyer.statusCode).toBe(201);
     const sellerPlayer = await repositories.players.findByAccountId(seller.json().player.accountId);
     if (!sellerPlayer) throw new Error("seller player missing");
-    await repositories.players.update({ ...sellerPlayer, inventory: { tomato: 2 } });
+    await repositories.players.update({ ...sellerPlayer, inventory: { tomato: 2, "tomato-seed": 1 } });
+    const sellerOptions = (await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${seller.json().token}` } })).json().options;
+    await app.inject({ method: "PATCH", url: "/api/player/profile", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { name: "Seller", farmName: "Seller Farm", specialization: "vegetables", plotId: sellerOptions[0].id, clothing: "forest", hair: "short" } });
 
     const planted = await app.inject({ method: "POST", url: "/api/farm/plant", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", x: 5, y: 5 } });
     expect(planted.statusCode).toBe(201);
@@ -249,10 +251,17 @@ describe("LaFarmer server", () => {
     const app = createApp();
     apps.push(app);
     const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Rancher", password: testPassword, credentialsSaved: true } });
-    const adopted = await app.inject({ method: "POST", url: "/api/farm/adopt", headers: { authorization: `Bearer ${register.json().token}` }, payload: { contentId: "cow" } });
+    const token = register.json().token as string;
+    const option = (await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${token}` } })).json().options[0];
+    await app.inject({ method: "PATCH", url: "/api/player/profile", headers: { authorization: `Bearer ${token}` }, payload: { name: "Rancher", farmName: "Rancher Farm", specialization: "dinosaurs", plotId: option.id, clothing: "forest", hair: "short" } });
+    const built = await app.inject({ method: "POST", url: "/api/farm/structures", headers: { authorization: `Bearer ${token}` }, payload: { type: "dinosaur_enclosure", x: 12, y: 12 } });
+    expect(built.statusCode).toBe(201);
+    const origin = await app.inject({ method: "POST", url: "/api/shop/origin/dinosaur-fossil/buy", headers: { authorization: `Bearer ${token}` }, payload: {} });
+    expect(origin.statusCode).toBe(200);
+    const adopted = await app.inject({ method: "POST", url: "/api/farm/adopt", headers: { authorization: `Bearer ${token}` }, payload: { contentId: "dinosaur", x: 16, y: 15 } });
     expect(adopted.statusCode).toBe(201);
-    expect(adopted.json().item.stageId).toBe("baby");
-    expect((await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${register.json().token}` } })).json().player.coins).toBe(900);
+    expect(adopted.json().item.stageId).toBe("fossil");
+    expect((await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${token}` } })).json().player.coins).toBe(320);
   });
 });
 

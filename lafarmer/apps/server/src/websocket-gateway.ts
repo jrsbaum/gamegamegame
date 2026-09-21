@@ -84,6 +84,8 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
         if (message.type === "farm.collect") { const result = await game.collect(client.playerId!, String(payload.itemId)); send(client, { type: "farm.collected", ...result }); }
         if (message.type === "market.list") send(client, { type: "market.updated", listing: await game.createListing(client.playerId!, { contentId: String(payload.contentId), quantity: Number(payload.quantity), unitPrice: Number(payload.unitPrice) }) });
         if (message.type === "market.buy") { const result = await game.buyListing(client.playerId!, String(payload.listingId), String(payload.idempotencyKey ?? payload.actionId ?? "")); send(client, { type: "market.purchased", ...result }); }
+        if (message.type === "farm.structure.build") send(client, { type: "farm.structure.built", structure: await game.buildStructure(client.playerId!, { type: String(payload.type) as never, x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
+        if (message.type === "world.region.enter") send(client, { type: "world.region.entered", player: await game.enterRegion(client.playerId!, String(payload.regionId)) });
         await sendSnapshot(client);
       }
     } catch (error) {
@@ -129,7 +131,7 @@ function isMoveMessage(value: unknown): value is { type: "move"; actionId: strin
 function isSupportedMessage(value: unknown): value is Record<string, unknown> & { type: string } {
   if (!value || typeof value !== "object") return false;
   const message = value as Record<string, unknown>;
-  return typeof message.type === "string" && ["move", "snapshot.get", "farm.plant", "farm.adopt", "farm.care", "farm.harvest", "farm.collect", "market.list", "market.buy"].includes(message.type);
+  return typeof message.type === "string" && ["move", "snapshot.get", "farm.plant", "farm.adopt", "farm.care", "farm.harvest", "farm.collect", "market.list", "market.buy", "farm.structure.build", "world.region.enter"].includes(message.type);
 }
 
 function readPayload(value: Record<string, unknown>): Record<string, unknown> {

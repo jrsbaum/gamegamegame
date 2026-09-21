@@ -1,26 +1,89 @@
+import { getWorldConnection, getWorldRegion, INITIAL_REGION_IDS, WORLD_CONNECTIONS, WORLD_REGIONS } from "@lafarmer/content";
 import type { LandOption, PlayerState } from "./domain.js";
 
-const LANDSCAPES = [
-  { biome: "river", title: "Vale do rio", feature: "rio + ponte", summary: "Água por perto e caminhos fáceis para visitar a fronteira.", fertility: 78 },
-  { biome: "forest", title: "Clareira do bosque", feature: "bosque + madeira", summary: "Mais madeira e coleta, com bastante espaço aberto para começar.", fertility: 70 },
-  { biome: "meadow", title: "Prado ensolarado", feature: "solo fértil", summary: "Uma área aberta e fértil para ciclos produtivos mais rápidos.", fertility: 86 },
-  { biome: "lake", title: "Margem do lago", feature: "lago + fósseis", summary: "Paisagem tranquila, pedras e chance de encontrar materiais raros.", fertility: 66 },
-  { biome: "rocky", title: "Encosta rochosa", feature: "caverna + pedra", summary: "Menos solo livre, mas uma identidade forte e recursos minerais.", fertility: 60 }
-] as const;
+export type WorldRegionStatus = "occupied" | "frontier" | "locked";
+
+export type WorldOverviewRegion = {
+  id: string;
+  name: string;
+  biome: string;
+  feature: string;
+  summary: string;
+  fertility: number;
+  polygon: readonly [number, number][];
+  status: WorldRegionStatus;
+  occupiedBy: string | null;
+  connectionId: string | null;
+};
+
+function occupiedRegions(players: PlayerState[], playerId: string): Map<string, PlayerState> {
+  return new Map(players.filter((player) => player.id !== playerId && player.homeRegionId).map((player) => [player.homeRegionId!, player]));
+}
+
+function connectionBetween(fromRegionId: string, toRegionId: string) {
+  return WORLD_CONNECTIONS.find((connection) =>
+    (connection.fromRegionId === fromRegionId && connection.toRegionId === toRegionId) ||
+    (connection.fromRegionId === toRegionId && connection.toRegionId === fromRegionId)
+  );
+}
 
 export function buildLandOptions(players: PlayerState[], playerId: string): LandOption[] {
-  const occupied = new Set(players.filter((player) => player.id !== playerId && player.plot).map((player) => `${player.plot!.x}:${player.plot!.y}`));
-  const anchors = players.filter((player) => player.plot).map((player) => player.plot!);
-  const candidates = anchors.length
-    ? anchors.flatMap((plot) => [{ x: plot.x + 1, y: plot.y }, { x: plot.x - 1, y: plot.y }, { x: plot.x, y: plot.y + 1 }, { x: plot.x, y: plot.y - 1 }])
-    : [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }];
-  const unique = new Map<string, { x: number; y: number }>();
-  for (const candidate of candidates) {
-    const key = `${candidate.x}:${candidate.y}`;
-    if (!occupied.has(key) && !unique.has(key)) unique.set(key, candidate);
-  }
-  return [...unique.values()].slice(0, 3).map((plot, index) => {
-    const landscape = LANDSCAPES[index % LANDSCAPES.length];
-    return { id: `plot-${plot.x}-${plot.y}`, x: plot.x, y: plot.y, biome: landscape.biome, title: landscape.title, feature: landscape.feature, summary: landscape.summary, fertility: landscape.fertility, nearbyNeighbors: anchors.filter((anchor) => Math.abs(anchor.x - plot.x) + Math.abs(anchor.y - plot.y) === 1).length };
+  const occupied = occupiedRegions(players, playerId);
+  const candidates = occupied.size === 0
+    ? INITIAL_REGION_IDS.map((id) => getWorldRegion(id)).filter((region): region is NonNullable<typeof region> => Boolean(region))
+    : WORLD_REGIONS.filter((region) => !occupied.has(region.id) && [...occupied.keys()].some((occupiedId) => region.neighbors.includes(occupiedId)));
+
+  return candidates.slice(0, 5).map((region) => {
+    const adjacentOccupiedId = [...occupied.keys()].find((occupiedId) => region.neighbors.includes(occupiedId));
+    const connection = adjacentOccupiedId ? connectionBetween(region.id, adjacentOccupiedId) : undefined;
+    return {
+      id: region.id,
+      regionId: region.id,
+      x: connection?.entry.x ?? 40,
+      y: connection?.entry.y ?? 29,
+      biome: region.biome,
+      title: region.name,
+      feature: region.feature,
+      summary: region.summary,
+      fertility: region.fertility,
+      nearbyNeighbors: [...occupied.keys()].filter((occupiedId) => region.neighbors.includes(occupiedId)).length,
+      polygon: region.polygon,
+      connectionId: connection?.id ?? null,
+      locked: false
+    };
   });
+}
+
+export function buildWorldOverview(players: PlayerState[], playerId: string): WorldOverviewRegion[] {
+  const occupied = occupiedRegions(players, playerId);
+  const options = new Map(buildLandOptions(players, playerId).map((option) => [option.regionId, option]));
+  return WORLD_REGIONS.map((region) => {
+    const owner = occupied.get(region.id);
+    const option = options.get(region.id);
+    return {
+      id: region.id,
+      name: region.name,
+      biome: region.biome,
+      feature: region.feature,
+      summary: region.summary,
+      fertility: region.fertility,
+      polygon: region.polygon,
+      status: owner ? "occupied" : option ? "frontier" : "locked",
+      occupiedBy: owner?.name ?? null,
+      connectionId: option?.connectionId ?? null
+    };
+  });
+}
+
+export function isRegionAvailable(players: PlayerState[], playerId: string, regionId: string): boolean {
+  return buildLandOptions(players, playerId).some((option) => option.regionId === regionId);
+}
+
+export function getConnection(fromRegionId: string, toRegionId: string) {
+  const from = getWorldRegion(fromRegionId);
+  return from?.neighbors.includes(toRegionId) ? connectionBetween(fromRegionId, toRegionId) : undefined;
+}
+
+export function regionExists(regionId: string): boolean {
+  return Boolean(getWorldRegion(regionId));
 }

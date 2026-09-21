@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { isWorldTileWalkable, isWorldWaterTile, outfits, palette, WORLD_HEIGHT_TILES, WORLD_OBSTACLES, WORLD_TILE_SIZE, WORLD_WIDTH_TILES, type WorldObstacle } from '@lafarmer/content-client';
+import { isInsideFarmBoundary, isWorldTileWalkable, isWorldWaterTile, outfits, palette, WORLD_HEIGHT_TILES, WORLD_OBSTACLES, WORLD_TILE_SIZE, WORLD_WIDTH_TILES, type WorldObstacle } from '@lafarmer/content-client';
 import type { PlayerProfile, RealtimeClient } from './network';
 
 const WORLD = { width: WORLD_WIDTH_TILES * WORLD_TILE_SIZE, height: WORLD_HEIGHT_TILES * WORLD_TILE_SIZE };
@@ -25,6 +25,8 @@ export class WorldScene extends Phaser.Scene {
   private readonly pendingMoves = new Map<string, 'up' | 'down' | 'left' | 'right'>();
   private readonly remotePlayers = new Map<string, RemoteView>();
   private readonly farmItems = new Map<string, FarmView>();
+  private readonly structures = new Map<string, Phaser.GameObjects.Graphics>();
+  private readonly dynamicBlocked = new Set<string>();
 
   constructor() { super('world'); }
 
@@ -54,12 +56,15 @@ export class WorldScene extends Phaser.Scene {
     this.remotePlayers.clear();
     this.farmItems.forEach((view) => { view.body.destroy(); view.tag.destroy(); });
     this.farmItems.clear();
-    const player = snapshot.player as { coins?: number; inventory?: Record<string, number> } | undefined;
+    this.structures.forEach((view) => view.destroy()); this.structures.clear(); this.dynamicBlocked.clear();
+    const player = snapshot.player as { coins?: number; inventory?: Record<string, number>; position?: { x?: number; y?: number } } | undefined;
     if (typeof player?.coins === 'number') this.worldData.onCoins(player.coins);
     if (player?.inventory) this.worldData.onInventory?.(player.inventory);
+    if (typeof player?.position?.x === 'number' && typeof player.position.y === 'number') this.applyServerPosition(player.position.x, player.position.y);
     this.worldData.onSnapshot?.(snapshot);
     (snapshot.players as Array<Record<string, unknown>> | undefined)?.forEach((remote) => this.renderRemotePlayer(remote));
     (snapshot.farmItems as Array<Record<string, unknown>> | undefined)?.forEach((item) => this.renderFarmItem(item));
+    (snapshot.structures as Array<Record<string, unknown>> | undefined)?.forEach((structure) => this.renderStructure(structure));
     this.notifyFarmStatus();
   }
 
@@ -110,7 +115,7 @@ export class WorldScene extends Phaser.Scene {
   private canOccupy(x: number, y: number): boolean {
     if (x < PLAYER_RADIUS || y < PLAYER_RADIUS || x > WORLD.width - PLAYER_RADIUS || y > WORLD.height - PLAYER_RADIUS) return false;
     const left = this.worldToTile(x - PLAYER_RADIUS); const right = this.worldToTile(x + PLAYER_RADIUS); const top = this.worldToTile(y - PLAYER_RADIUS); const bottom = this.worldToTile(y + PLAYER_RADIUS);
-    for (let tileY = top; tileY <= bottom; tileY += 1) for (let tileX = left; tileX <= right; tileX += 1) if (!isWorldTileWalkable(tileX, tileY)) return false;
+    for (let tileY = top; tileY <= bottom; tileY += 1) for (let tileX = left; tileX <= right; tileX += 1) if (!isWorldTileWalkable(tileX, tileY) || this.dynamicBlocked.has(`${tileX}:${tileY}`)) return false;
     return true;
   }
 
@@ -130,6 +135,15 @@ export class WorldScene extends Phaser.Scene {
     else body.fillStyle(color(ready ? palette.amber : palette.forest), 1).fillEllipse(0, 0, ready ? 25 : 15, ready ? 25 : 15).fillStyle(color(palette.coral), 1).fillCircle(-6, -3, ready ? 5 : 3).fillCircle(6, 2, ready ? 5 : 3);
     const tag = this.label(ready ? 'pronto' : 'crescendo', position.x, position.y - 28, 9, palette.forest); this.farmItems.set(id, { id, contentId, ready, body, tag, x: position.x, y: position.y }); this.notifyFarmStatus();
   }
+  private renderStructure(raw: Record<string, unknown>): void {
+    const id = String(raw.id ?? ''); const footprint = raw.footprint as Array<[number, number]> | undefined; if (!id || !footprint?.length) return;
+    const points = footprint.map(([x, y]) => this.gridToWorld(x, y)); const graphics = this.add.graphics().setDepth(28);
+    const minX = Math.min(...footprint.map((point) => point[0])); const maxX = Math.max(...footprint.map((point) => point[0])); const minY = Math.min(...footprint.map((point) => point[1])); const maxY = Math.max(...footprint.map((point) => point[1]));
+    for (let y = minY; y < maxY; y += 1) for (let x = minX; x < maxX; x += 1) this.dynamicBlocked.add(`${x}:${y}`);
+    graphics.fillStyle(color(raw.type === 'dinosaur_enclosure' ? '#b47b48' : raw.type === 'orchard' ? '#72a95d' : '#d4ae69'), .72).beginPath().moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach((point) => graphics.lineTo(point.x, point.y)); graphics.closePath().fillPath().lineStyle(3, color(palette.forest), .45).strokePath();
+    this.structures.set(id, graphics);
+  }
   private removeFarmItem(id: string): void { const item = this.farmItems.get(id); if (!item) return; item.body.destroy(); item.tag.destroy(); this.farmItems.delete(id); this.notifyFarmStatus(); }
   private notifyFarmStatus(): void { const ready = [...this.farmItems.values()].filter((item) => item.ready).length; this.worldData.onProduction?.(ready, this.farmItems.size); }
 
@@ -147,8 +161,8 @@ export class WorldScene extends Phaser.Scene {
   private drawMap(): void {
     const graphics = this.add.graphics().setDepth(0);
     for (let y = 0; y < WORLD_HEIGHT_TILES; y += 1) for (let x = 0; x < WORLD_WIDTH_TILES; x += 1) {
-      const px = x * WORLD_TILE_SIZE; const py = y * WORLD_TILE_SIZE; const water = isWorldWaterTile(x, y); const path = !water && (y === 13 || y === 14 || x === 17 || (y === 21 && x > 5 && x < 34)); const field = !water && x >= 6 && x <= 11 && y >= 3 && y <= 7; const meadow = x >= 27 && y >= 4 && y <= 13;
-      const tileColor = water ? palette.river : path ? '#d4ae69' : field ? palette.soil : meadow ? '#a8cc7b' : ((x + y) % 2 ? '#a4c77e' : palette.grass);
+      const px = x * WORLD_TILE_SIZE; const py = y * WORLD_TILE_SIZE; const inside = isInsideFarmBoundary(x + .5, y + .5); const water = inside && isWorldWaterTile(x, y); const path = inside && !water && (y === 28 || y === 29 || x === 40 || (y === 21 && x > 5 && x < 34)); const field = inside && !water && x >= 6 && x <= 15 && y >= 8 && y <= 13; const meadow = inside && x >= 27 && y >= 4 && y <= 13;
+      const tileColor = !inside ? '#6e8b72' : water ? palette.river : path ? '#d4ae69' : field ? palette.soil : meadow ? '#a8cc7b' : ((x + y) % 2 ? '#a4c77e' : palette.grass);
       graphics.fillStyle(color(tileColor), 1).fillRect(px, py, WORLD_TILE_SIZE + 1, WORLD_TILE_SIZE + 1).lineStyle(1, color(water ? palette.riverLight : palette.forest), water ? 0.16 : 0.08).strokeRect(px, py, WORLD_TILE_SIZE, WORLD_TILE_SIZE);
       if (water) graphics.fillStyle(color(palette.riverLight), 0.24).fillRect(px + 8 + (y % 3) * 5, py + 18, 22, 3);
       if (field) graphics.lineStyle(2, color('#a97a4c'), 0.45).lineBetween(px + 9, py + 16, px + 38, py + 16);

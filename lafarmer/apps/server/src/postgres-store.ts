@@ -1,6 +1,6 @@
 import { Pool, type QueryResultRow } from "pg";
-import type { Account, FarmItem, LandPlot, MarketListing, PlayerState, Session, Specialization, WalletEntry } from "./domain.js";
-import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, WalletRepository } from "./repositories.js";
+import type { Account, FarmItem, FarmStructure, LandPlot, MarketListing, PlayerState, Session, Specialization, WalletEntry } from "./domain.js";
+import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, StructureRepository, WalletRepository } from "./repositories.js";
 
 export const POSTGRES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS accounts (
@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS players (
   farm_name TEXT NOT NULL DEFAULT '',
   specialization TEXT,
   plot JSONB,
+  home_region_id TEXT,
+  current_region_id TEXT,
   clothing TEXT NOT NULL CHECK (clothing IN ('forest', 'coral', 'river')),
   hair TEXT NOT NULL CHECK (hair IN ('short', 'long')),
   coins INTEGER NOT NULL DEFAULT 0 CHECK (coins >= 0),
@@ -42,10 +44,14 @@ ALTER TABLE players ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ NOT NULL
 ALTER TABLE players ADD COLUMN IF NOT EXISTS farm_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE players ADD COLUMN IF NOT EXISTS specialization TEXT;
 ALTER TABLE players ADD COLUMN IF NOT EXISTS plot JSONB;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS home_region_id TEXT;
+ALTER TABLE players ADD COLUMN IF NOT EXISTS current_region_id TEXT;
 
 CREATE TABLE IF NOT EXISTS farm_items (
   id UUID PRIMARY KEY,
   owner_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  region_id TEXT NOT NULL DEFAULT 'region-center',
+  structure_id UUID,
   content_id TEXT NOT NULL,
   planted_at TIMESTAMPTZ NOT NULL,
   last_care_at TIMESTAMPTZ,
@@ -71,7 +77,22 @@ CREATE TABLE IF NOT EXISTS market_listings (
   created_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS farm_structures (
+  id UUID PRIMARY KEY,
+  owner_id UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  region_id TEXT NOT NULL,
+  structure_type TEXT NOT NULL,
+  footprint JSONB NOT NULL,
+  capacity INTEGER NOT NULL DEFAULT 0,
+  cost INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL DEFAULT 'built',
+  position_x DOUBLE PRECISION NOT NULL,
+  position_y DOUBLE PRECISION NOT NULL
+);
+
 ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS last_processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS region_id TEXT NOT NULL DEFAULT 'region-center';
+ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS structure_id UUID;
 ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS pending_quantity INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS next_production_at TIMESTAMPTZ;
 ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS quality TEXT NOT NULL DEFAULT 'common';
@@ -173,8 +194,8 @@ class PostgresPlayers implements PlayerRepository {
 
   async insert(player: PlayerState): Promise<void> {
     await this.pool.query(
-      `INSERT INTO players (id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13 / 1000.0), $14, $15)`,
+      `INSERT INTO players (id, account_id, name, farm_name, specialization, plot, home_region_id, current_region_id, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, to_timestamp($15 / 1000.0), $16, $17)`,
       [
         player.id,
         player.accountId,
@@ -182,6 +203,8 @@ class PostgresPlayers implements PlayerRepository {
         player.farmName,
         player.specialization,
         player.plot ? JSON.stringify(player.plot) : null,
+        player.homeRegionId,
+        player.currentRegionId,
         player.appearance.clothing,
         player.appearance.hair,
         player.coins,
@@ -198,7 +221,7 @@ class PostgresPlayers implements PlayerRepository {
   async update(player: PlayerState): Promise<void> {
     await this.pool.query(
       `UPDATE players
-       SET name = $2, farm_name = $3, specialization = $4, plot = $5, clothing = $6, hair = $7, coins = $8, inventory = $9, inventory_qualities = $10, inventory_capacity = $11, last_active_at = to_timestamp($12 / 1000.0), position_x = $13, position_y = $14
+       SET name = $2, farm_name = $3, specialization = $4, plot = $5, home_region_id = $6, current_region_id = $7, clothing = $8, hair = $9, coins = $10, inventory = $11, inventory_qualities = $12, inventory_capacity = $13, last_active_at = to_timestamp($14 / 1000.0), position_x = $15, position_y = $16
        WHERE id = $1`,
       [
         player.id,
@@ -206,6 +229,8 @@ class PostgresPlayers implements PlayerRepository {
         player.farmName,
         player.specialization,
         player.plot ? JSON.stringify(player.plot) : null,
+        player.homeRegionId,
+        player.currentRegionId,
         player.appearance.clothing,
         player.appearance.hair,
         player.coins,
@@ -253,9 +278,17 @@ class PostgresFarm implements FarmRepository {
   constructor(private readonly pool: Pool) {}
   async listByOwnerId(ownerId: string): Promise<FarmItem[]> { const result = await this.pool.query<FarmRow>(farmSelect + " WHERE owner_id = $1", [ownerId]); return result.rows.map(mapFarm); }
   async listAll(): Promise<FarmItem[]> { const result = await this.pool.query<FarmRow>(farmSelect); return result.rows.map(mapFarm); }
-  async insert(item: FarmItem): Promise<void> { await this.pool.query("INSERT INTO farm_items (id, owner_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y) VALUES ($1, $2, $3, to_timestamp($4 / 1000.0), CASE WHEN $5::bigint IS NULL THEN NULL ELSE to_timestamp($5 / 1000.0) END, to_timestamp($6 / 1000.0), $7, CASE WHEN $8::bigint IS NULL THEN NULL ELSE to_timestamp($8 / 1000.0) END, $9, $10, $11, $12, $13, $14)", [item.id, item.ownerId, item.contentId, item.plantedAt, item.lastCareAt, item.lastProcessedAt, item.pendingQuantity, item.nextProductionAt, item.quality, item.careState, item.behaviorState, item.appearanceVariantId, item.position.x, item.position.y]); }
-  async update(item: FarmItem): Promise<void> { await this.pool.query("UPDATE farm_items SET last_care_at = CASE WHEN $2::bigint IS NULL THEN NULL ELSE to_timestamp($2 / 1000.0) END, last_processed_at = to_timestamp($3 / 1000.0), pending_quantity = $4, next_production_at = CASE WHEN $5::bigint IS NULL THEN NULL ELSE to_timestamp($5 / 1000.0) END, quality = $6, care_state = $7, behavior_state = $8, appearance_variant_id = $9, position_x = $10, position_y = $11 WHERE id = $1", [item.id, item.lastCareAt, item.lastProcessedAt, item.pendingQuantity, item.nextProductionAt, item.quality, item.careState, item.behaviorState, item.appearanceVariantId, item.position.x, item.position.y]); }
+  async insert(item: FarmItem): Promise<void> { await this.pool.query("INSERT INTO farm_items (id, owner_id, region_id, structure_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y) VALUES ($1, $2, $3, $4, $5, to_timestamp($6 / 1000.0), CASE WHEN $7::bigint IS NULL THEN NULL ELSE to_timestamp($7 / 1000.0) END, to_timestamp($8 / 1000.0), $9, CASE WHEN $10::bigint IS NULL THEN NULL ELSE to_timestamp($10 / 1000.0) END, $11, $12, $13, $14, $15, $16)", [item.id, item.ownerId, item.regionId, item.structureId, item.contentId, item.plantedAt, item.lastCareAt, item.lastProcessedAt, item.pendingQuantity, item.nextProductionAt, item.quality, item.careState, item.behaviorState, item.appearanceVariantId, item.position.x, item.position.y]); }
+  async update(item: FarmItem): Promise<void> { await this.pool.query("UPDATE farm_items SET region_id = $2, structure_id = $3, last_care_at = CASE WHEN $4::bigint IS NULL THEN NULL ELSE to_timestamp($4 / 1000.0) END, last_processed_at = to_timestamp($5 / 1000.0), pending_quantity = $6, next_production_at = CASE WHEN $7::bigint IS NULL THEN NULL ELSE to_timestamp($7 / 1000.0) END, quality = $8, care_state = $9, behavior_state = $10, appearance_variant_id = $11, position_x = $12, position_y = $13 WHERE id = $1", [item.id, item.regionId, item.structureId, item.lastCareAt, item.lastProcessedAt, item.pendingQuantity, item.nextProductionAt, item.quality, item.careState, item.behaviorState, item.appearanceVariantId, item.position.x, item.position.y]); }
   async delete(id: string): Promise<void> { await this.pool.query("DELETE FROM farm_items WHERE id = $1", [id]); }
+}
+
+class PostgresStructures implements StructureRepository {
+  constructor(private readonly pool: Pool) {}
+  async listByOwnerId(ownerId: string): Promise<FarmStructure[]> { const result = await this.pool.query<StructureRow>(structureSelect + " WHERE owner_id = $1", [ownerId]); return result.rows.map(mapStructure); }
+  async listAll(): Promise<FarmStructure[]> { const result = await this.pool.query<StructureRow>(structureSelect); return result.rows.map(mapStructure); }
+  async insert(structure: FarmStructure): Promise<void> { await this.pool.query("INSERT INTO farm_structures (id, owner_id, region_id, structure_type, footprint, capacity, cost, state, position_x, position_y) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)", [structure.id, structure.ownerId, structure.regionId, structure.type, JSON.stringify(structure.footprint), structure.capacity, structure.cost, structure.state, structure.position.x, structure.position.y]); }
+  async update(structure: FarmStructure): Promise<void> { await this.pool.query("UPDATE farm_structures SET footprint = $2, capacity = $3, cost = $4, state = $5, position_x = $6, position_y = $7 WHERE id = $1", [structure.id, JSON.stringify(structure.footprint), structure.capacity, structure.cost, structure.state, structure.position.x, structure.position.y]); }
 }
 
 class PostgresMarket implements MarketRepository {
@@ -278,6 +311,7 @@ export function createPostgresRepositories(pool: Pool): RepositoryBundle {
     sessions: new PostgresSessions(pool),
     players: new PostgresPlayers(pool),
     farm: new PostgresFarm(pool),
+    structures: new PostgresStructures(pool),
     market: new PostgresMarket(pool),
     wallet: new PostgresWallet(pool)
   };
@@ -304,6 +338,8 @@ type PlayerRow = QueryResultRow & {
   farm_name: string;
   specialization: Specialization | null;
   plot: LandPlot | null;
+  home_region_id: string | null;
+  current_region_id: string | null;
   clothing: "forest" | "coral" | "river";
   hair: "short" | "long";
   coins: number;
@@ -315,12 +351,14 @@ type PlayerRow = QueryResultRow & {
   position_y: number;
 };
 
-const playerSelect = `SELECT id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y FROM players`;
-const playerColumns = `id, account_id, name, farm_name, specialization, plot, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y`;
-const farmSelect = `SELECT id, owner_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y FROM farm_items`;
+const playerSelect = `SELECT id, account_id, name, farm_name, specialization, plot, home_region_id, current_region_id, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y FROM players`;
+const playerColumns = `id, account_id, name, farm_name, specialization, plot, home_region_id, current_region_id, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y`;
+const farmSelect = `SELECT id, owner_id, region_id, structure_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y FROM farm_items`;
+const structureSelect = `SELECT id, owner_id, region_id, structure_type, footprint, capacity, cost, state, position_x, position_y FROM farm_structures`;
 const marketSelect = `SELECT id, seller_id, seller_name, content_id, quantity, unit_price, quality, created_at FROM market_listings`;
 
-type FarmRow = QueryResultRow & { id: string; owner_id: string; content_id: string; planted_at: Date | string; last_care_at: Date | string | null; last_processed_at: Date | string; pending_quantity: number; next_production_at: Date | string | null; quality: "common" | "good" | "perfect"; care_state: "awaiting-care" | "attended"; behavior_state: "idle" | "wander" | "hungry" | "seekCare" | "eating" | "happy" | "produce"; appearance_variant_id: string; position_x: number; position_y: number };
+type FarmRow = QueryResultRow & { id: string; owner_id: string; region_id: string; structure_id: string | null; content_id: string; planted_at: Date | string; last_care_at: Date | string | null; last_processed_at: Date | string; pending_quantity: number; next_production_at: Date | string | null; quality: "common" | "good" | "perfect"; care_state: "awaiting-care" | "attended"; behavior_state: "idle" | "wander" | "hungry" | "seekCare" | "eating" | "happy" | "produce"; appearance_variant_id: string; position_x: number; position_y: number };
+type StructureRow = QueryResultRow & { id: string; owner_id: string; region_id: string; structure_type: FarmStructure["type"]; footprint: FarmStructure["footprint"]; capacity: number; cost: number; state: FarmStructure["state"]; position_x: number; position_y: number };
 type MarketRow = QueryResultRow & { id: string; seller_id: string; seller_name: string; content_id: string; quantity: number; unit_price: number; quality: "common" | "good" | "perfect"; created_at: Date | string };
 type WalletRow = QueryResultRow & { id: string; player_id: string; delta: number; balance: number; reason: WalletEntry["reason"]; reference_id: string | null; created_at: Date | string };
 
@@ -350,6 +388,8 @@ function mapPlayer(row: PlayerRow): PlayerState {
     farmName: row.farm_name ?? "",
     specialization: row.specialization,
     plot: row.plot,
+    homeRegionId: row.home_region_id,
+    currentRegionId: row.current_region_id,
     appearance: { clothing: row.clothing, hair: row.hair },
     coins: row.coins,
     inventory: row.inventory ?? {},
@@ -360,7 +400,8 @@ function mapPlayer(row: PlayerRow): PlayerState {
   };
 }
 
-function mapFarm(row: FarmRow): FarmItem { return { id: row.id, ownerId: row.owner_id, contentId: row.content_id, plantedAt: new Date(row.planted_at).getTime(), lastCareAt: row.last_care_at ? new Date(row.last_care_at).getTime() : null, lastProcessedAt: new Date(row.last_processed_at).getTime(), pendingQuantity: row.pending_quantity, nextProductionAt: row.next_production_at ? new Date(row.next_production_at).getTime() : null, quality: row.quality, careState: row.care_state, behaviorState: row.behavior_state, appearanceVariantId: row.appearance_variant_id, position: { x: row.position_x, y: row.position_y } }; }
+function mapFarm(row: FarmRow): FarmItem { return { id: row.id, ownerId: row.owner_id, regionId: row.region_id, structureId: row.structure_id, contentId: row.content_id, plantedAt: new Date(row.planted_at).getTime(), lastCareAt: row.last_care_at ? new Date(row.last_care_at).getTime() : null, lastProcessedAt: new Date(row.last_processed_at).getTime(), pendingQuantity: row.pending_quantity, nextProductionAt: row.next_production_at ? new Date(row.next_production_at).getTime() : null, quality: row.quality, careState: row.care_state, behaviorState: row.behavior_state, appearanceVariantId: row.appearance_variant_id, position: { x: row.position_x, y: row.position_y } }; }
+function mapStructure(row: StructureRow): FarmStructure { return { id: row.id, ownerId: row.owner_id, regionId: row.region_id, type: row.structure_type, footprint: row.footprint, capacity: row.capacity, cost: row.cost, state: row.state, position: { x: row.position_x, y: row.position_y } }; }
 function mapMarket(row: MarketRow): MarketListing { return { id: row.id, sellerId: row.seller_id, sellerName: row.seller_name, contentId: row.content_id, quantity: row.quantity, unitPrice: row.unit_price, quality: row.quality, createdAt: new Date(row.created_at).getTime() }; }
 function mapWallet(row: WalletRow): WalletEntry { return { id: row.id, playerId: row.player_id, delta: row.delta, balance: row.balance, reason: row.reason, referenceId: row.reference_id, createdAt: new Date(row.created_at).getTime() }; }
 
