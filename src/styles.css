@@ -1337,6 +1337,10 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 .lobby-game-impostor .lobby-game-mark { background: var(--coral); transform: rotate(5deg); }
 
 .lobby-game-caracol .lobby-game-mark { background: var(--sky); font-size: 25px; transform: rotate(-7deg); }
+.lobby-game-lafarmer .lobby-game-mark { background: #b8e986; font-size: 25px; transform: rotate(6deg); }
+.lobby-game-card.is-unavailable { cursor: not-allowed; opacity: 0.68; }
+.lobby-game-card.is-unavailable .lobby-game-arrow { color: var(--muted); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; }
+.lobby-game-card.is-unavailable:hover { border-color: var(--line); background: rgba(31, 30, 53, 0.76); transform: none; }
 
 .lobby-game-copy { display: grid; gap: 8px; min-width: 0; }
 
