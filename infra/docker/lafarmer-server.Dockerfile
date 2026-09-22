@@ -1,17 +1,17 @@
 FROM node:22-alpine AS deps
 
 WORKDIR /app/lafarmer
-COPY lafarmer/package.json lafarmer/package-lock.json ./
+COPY apps/lafarmer/package.json apps/lafarmer/package-lock.json ./
 RUN mkdir -p apps/server packages/content
-COPY lafarmer/apps/server/package.json apps/server/package.json
-COPY lafarmer/packages/content/package.json packages/content/package.json
+COPY apps/lafarmer/apps/server/package.json apps/server/package.json
+COPY apps/lafarmer/packages/content/package.json packages/content/package.json
 RUN npm ci
 
 FROM node:22-alpine AS build
 
 WORKDIR /app/lafarmer
 COPY --from=deps /app/lafarmer/node_modules ./node_modules
-COPY lafarmer/. .
+COPY apps/lafarmer/. .
 RUN npm run build --workspace=apps/server
 
 FROM node:22-alpine AS runtime
