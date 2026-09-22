@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { io as createClient, type Socket } from 'socket.io-client';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, InterServerEvents, ServerToClientEvents, SocketData } from '../shared/protocol';
-import type { CaracolActionResult, CaracolCosmeticSlot, CaracolCosmeticWearer, CaracolHistoryResult, CaracolStateView } from '../shared/caracol';
+import { CARACOL_STARTING_COINS, type CaracolActionResult, type CaracolCosmeticSlot, type CaracolCosmeticWearer, type CaracolHistoryResult, type CaracolNoticePayload, type CaracolRegionalEventDefinition, type CaracolStateView } from '../shared/caracol';
 import { createCaracolManager, type CaracolGameManager } from '../server/caracol/game';
 import { MemoryCaracolStore } from '../server/caracol/store';
 
@@ -38,12 +38,16 @@ function waitForEvent<T>(socket: TestSocket, event: keyof ServerToClientEvents, 
   });
 }
 
-async function createHarness(): Promise<Harness> {
+interface HarnessOptions {
+  regionalEventsCatalog?: readonly CaracolRegionalEventDefinition[];
+  random?: () => number;
+}
+
+async function createHarness(store: MemoryCaracolStore = new MemoryCaracolStore(), options: HarnessOptions = {}): Promise<Harness> {
   const httpServer = createServer();
   const ioServer = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, { cors: { origin: true } });
   const now = { value: Date.now() };
-  const store = new MemoryCaracolStore();
-  const manager = createCaracolManager(ioServer, { store, clock: () => now.value, autoTick: false });
+  const manager = createCaracolManager(ioServer, { store, clock: () => now.value, autoTick: false, ...options });
   ioServer.on('connection', (socket) => manager.bindSocket(socket));
   await manager.ready();
   await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
@@ -79,6 +83,10 @@ function resume(client: TestSocket, sessionToken: string): Promise<CaracolAction
   return new Promise((resolve) => client.emit('caracol:resume', { sessionToken }, resolve));
 }
 
+function logout(client: TestSocket): void {
+  client.emit('caracol:logout');
+}
+
 function sync(client: TestSocket): Promise<CaracolActionResult> {
   return new Promise((resolve) => client.emit('caracol:sync', resolve));
 }
@@ -109,6 +117,73 @@ function equipCosmetic(client: TestSocket, wearer: CaracolCosmeticWearer, slot: 
 
 function history(client: TestSocket, beforeId: string | null = null): Promise<CaracolHistoryResult> {
   return new Promise((resolve) => client.emit('caracol:history', { beforeId, limit: 20 }, resolve));
+}
+
+function regionalClaim(client: TestSocket): Promise<CaracolActionResult> {
+  return new Promise((resolve) => client.emit('caracol:regional-claim', resolve));
+}
+
+const ALL_MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const REGIONAL_TEST_UF_SAZONAL = 'AC';
+const REGIONAL_TEST_UF_RARO = 'RR';
+const REGIONAL_RARO_DURATION_MS = 30 * 60_000;
+
+const REGIONAL_TEST_UF_WORLD_SPEED = 'SP';
+const REGIONAL_TEST_UF_CHASE_TARGET = 'MG';
+
+function regionalTestCatalog(): CaracolRegionalEventDefinition[] {
+  return [
+    {
+      id: 'ac-teste-sazonal',
+      uf: REGIONAL_TEST_UF_SAZONAL,
+      nome: 'Chuva de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'precoConta', multiplicador: 2 },
+    },
+    {
+      id: 'rr-teste-raro',
+      uf: REGIONAL_TEST_UF_RARO,
+      nome: 'Seca de teste',
+      perfil: 'raro',
+      mesesElegiveis: ALL_MONTHS,
+      chancePorHoraNaJanela: 1,
+      duracaoMs: REGIONAL_RARO_DURATION_MS,
+      jogador: { tipo: 'saldoInstantaneo', delta: 5 },
+    },
+    {
+      id: 'sp-teste-velocidade-mundo',
+      uf: REGIONAL_TEST_UF_WORLD_SPEED,
+      nome: 'Ventania de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      caracol: { tipo: 'velocidadeMundo', multiplicador: 0.5 },
+    },
+    {
+      id: 'mg-teste-velocidade-alvo',
+      uf: REGIONAL_TEST_UF_CHASE_TARGET,
+      nome: 'ZCAS de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 2 },
+    },
+  ];
+}
+
+/** Só o efeito de velocidade contra o alvo, isolado (sem o `velocidadeMundo` da SP misturar o fator). */
+function chaseAgainstOnlyCatalog(): CaracolRegionalEventDefinition[] {
+  return [{
+    id: 'mg-teste-velocidade-alvo',
+    uf: REGIONAL_TEST_UF_CHASE_TARGET,
+    nome: 'ZCAS de teste',
+    perfil: 'sazonal',
+    mesesElegiveis: ALL_MONTHS,
+    duracaoMs: null,
+    caracol: { tipo: 'velocidadeContraAlvoNoEstado', multiplicador: 2 },
+  }];
 }
 
 afterEach(async () => {
@@ -222,6 +297,50 @@ describe('mundo global do Caracol', () => {
     const refreshed = await sync(resumedClient);
     expect(refreshed.ok).toBe(true);
     if (refreshed.ok) expect(refreshed.state.you.coins).toBe(17);
+  });
+
+  it('mantém a sessão válida depois de um restart do processo (deploy)', async () => {
+    const harness = await createHarness();
+    const player = await connectClient(harness.address);
+    const created = await register(player, 'Sobrevivente');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const sessionToken = created.sessionToken;
+
+    // Simula um deploy/restart: novo processo (novo manager, nova conexão),
+    // mesmo banco por baixo (mesma MemoryCaracolStore = mesmo Postgres).
+    const restarted = await createHarness(harness.store);
+    const resumedClient = await connectClient(restarted.address);
+    const resumed = await resume(resumedClient, sessionToken);
+
+    expect(resumed.ok).toBe(true);
+    if (resumed.ok) expect(resumed.nickname).toBe('Sobrevivente');
+  });
+
+  it('sessão revogada por logout continua inválida mesmo depois de um restart do processo', async () => {
+    const harness = await createHarness();
+    const player = await connectClient(harness.address);
+    const created = await register(player, 'Deslogado');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const sessionToken = created.sessionToken;
+
+    logout(player);
+    // "caracol:logout" não tem ack no protocolo; dá tempo do servidor
+    // processar a revogação antes de derrubar a conexão (mesmo padrão usado
+    // nos outros testes deste arquivo para ações sem ack).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    player.disconnect();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Mesmo depois de um "restart" (novo manager, mesmo store), o token
+    // revogado antes do restart não deve voltar a funcionar.
+    const restarted = await createHarness(harness.store);
+    const resumedClient = await connectClient(restarted.address);
+    const resumed = await resume(resumedClient, sessionToken);
+
+    expect(resumed.ok).toBe(false);
+    if (!resumed.ok) expect(resumed.code).toBe('SESSION_EXPIRED');
   });
 
   it('mata no alcance, mantém o caracol no local, zera o desconto e o preço de redirecionar', async () => {
@@ -440,5 +559,318 @@ describe('mundo global do Caracol', () => {
     const persisted = await harness.store.loadSnapshot();
     expect(persisted.accounts[0]?.cosmeticOwnedItemIds).toContain('cap-bucket');
     expect(persisted.accounts[0]?.cosmeticOutfit.cap).toBe('cap-bucket');
+  });
+});
+
+describe('clima regional do Caracol', () => {
+  it('avança 30 minutos, ativa um evento elegível e o expira quando a duração passa', async () => {
+    const harness = await createHarness(undefined, { regionalEventsCatalog: regionalTestCatalog(), random: () => 0 });
+
+    harness.now.value += 30 * 60_000;
+    const activatedAt = harness.now.value;
+    await harness.manager.tickOnce();
+    const afterActivation = (await harness.store.loadSnapshot()).regionalEvents;
+    const sazonalRecord = afterActivation.find((record) => record.uf === REGIONAL_TEST_UF_SAZONAL);
+    const raroRecord = afterActivation.find((record) => record.uf === REGIONAL_TEST_UF_RARO);
+    expect(sazonalRecord?.activeEventId).toBe('ac-teste-sazonal');
+    expect(raroRecord?.activeEventId).toBe('rr-teste-raro');
+    expect(raroRecord?.expiresAt).toBe(activatedAt + REGIONAL_RARO_DURATION_MS);
+    const expiresAt = raroRecord!.expiresAt!;
+
+    harness.now.value = expiresAt;
+    await harness.manager.tickOnce();
+    const afterExpiration = (await harness.store.loadSnapshot()).regionalEvents;
+    expect(afterExpiration.find((record) => record.uf === REGIONAL_TEST_UF_RARO)?.activeEventId).toBeNull();
+    expect(afterExpiration.find((record) => record.uf === REGIONAL_TEST_UF_SAZONAL)?.activeEventId).toBe('ac-teste-sazonal');
+  });
+
+  it('mantém o evento ativo com o expiresAt original depois de reiniciar o processo (mesmo store)', async () => {
+    const catalog = regionalTestCatalog();
+    const harness = await createHarness(undefined, { regionalEventsCatalog: catalog, random: () => 0 });
+    harness.now.value += 30 * 60_000;
+    await harness.manager.tickOnce();
+    const before = (await harness.store.loadSnapshot()).regionalEvents.find((record) => record.uf === REGIONAL_TEST_UF_RARO);
+    expect(before?.activeEventId).toBe('rr-teste-raro');
+
+    const restarted = await createHarness(harness.store, { regionalEventsCatalog: catalog, random: () => 0 });
+    const after = (await restarted.store.loadSnapshot()).regionalEvents.find((record) => record.uf === REGIONAL_TEST_UF_RARO);
+    expect(after?.activeEventId).toBe('rr-teste-raro');
+    expect(after?.expiresAt).toBe(before?.expiresAt);
+  });
+
+  it('transmite caracol:notice com code "regional-event" quando um evento ativa', async () => {
+    const harness = await createHarness(undefined, { regionalEventsCatalog: regionalTestCatalog(), random: () => 0 });
+    const player = await connectClient(harness.address);
+    expect((await register(player, 'Meteorologista')).ok).toBe(true);
+
+    const notice = waitForEvent<CaracolNoticePayload>(player, 'caracol:notice', (payload) => payload.code === 'regional-event');
+    harness.now.value += 30 * 60_000;
+    await harness.manager.tickOnce();
+    const payload = await notice;
+    expect(payload.code).toBe('regional-event');
+    expect(payload.message).toContain('Chuva de teste');
+  });
+});
+
+describe('efeitos regionais em preço, velocidade e visão de estado', () => {
+  it('um evento precoConta ativo no estado da conta dobra o preço de acelerar', async () => {
+    const harness = await createHarness(undefined, { regionalEventsCatalog: regionalTestCatalog(), random: () => 0 });
+    const player = await connectClient(harness.address);
+    await register(player, 'Precificado');
+    await selectCity(player, '1200013'); // Acrelândia, AC
+
+    const before = await sync(player);
+    expect(before.ok).toBe(true);
+    if (!before.ok) return;
+    const baseSpeedCost = before.state.world.snail.speedCost;
+
+    harness.now.value += 30 * 60_000;
+    await harness.manager.tickOnce(); // ativa o precoConta x2 em AC
+
+    const after = await sync(player);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.state.world.snail.speedCost).toBe(baseSpeedCost * 2);
+  });
+
+  it('velocidadeMundo ativo dobra o ETA de perseguição contra qualquer alvo (metade da velocidade)', async () => {
+    // Evento pré-carregado no store antes do boot (mesmo padrão dos testes de
+    // velocidadeContraAlvoNoEstado abaixo): evita que o tick que ativaria o
+    // evento também mova o caracol por 30 minutos, o que mudaria a distância
+    // restante nos dois cenários de um jeito que não é só "metade da velocidade".
+    async function setup(preActivate: boolean) {
+      const store = new MemoryCaracolStore();
+      if (preActivate) {
+        await store.saveRegionalEvents([{ uf: REGIONAL_TEST_UF_WORLD_SPEED, activeEventId: 'sp-teste-velocidade-mundo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+      }
+      const harness = await createHarness(store, { regionalEventsCatalog: regionalTestCatalog() });
+      const player = await connectClient(harness.address);
+      await register(player, 'Alvo');
+      await selectCity(player, '1200013'); // AC, sem evento de velocidade nesta suíte
+      harness.now.value += 50_000; // acumula moedas suficientes para acelerar
+      expect((await buySpeed(player)).ok).toBe(true);
+      return sync(player);
+    }
+
+    const withEvent = await setup(true);
+    const withoutEvent = await setup(false);
+    expect(withEvent.ok && withoutEvent.ok).toBe(true);
+    if (!withEvent.ok || !withoutEvent.ok) return;
+    expect(withEvent.state.world.snail.etaMs).toBeCloseTo((withoutEvent.state.world.snail.etaMs ?? 0) * 2, 0);
+  });
+
+  it('velocidadeContraAlvoNoEstado dobra a perseguição quando o alvo mora no estado ativo', async () => {
+    async function setup(preActivate: boolean) {
+      const store = new MemoryCaracolStore();
+      if (preActivate) {
+        await store.saveRegionalEvents([{ uf: REGIONAL_TEST_UF_CHASE_TARGET, activeEventId: 'mg-teste-velocidade-alvo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+      }
+      const harness = await createHarness(store, { regionalEventsCatalog: chaseAgainstOnlyCatalog() });
+      const player = await connectClient(harness.address);
+      await register(player, 'Alvo');
+      await selectCity(player, '3100104'); // Abadia dos Dourados, MG
+      harness.now.value += 50_000;
+      expect((await buySpeed(player)).ok).toBe(true);
+      return sync(player);
+    }
+
+    const withEvent = await setup(true);
+    const withoutEvent = await setup(false);
+    expect(withEvent.ok && withoutEvent.ok).toBe(true);
+    if (!withEvent.ok || !withoutEvent.ok) return;
+    expect(withEvent.state.world.snail.etaMs).toBeCloseTo((withoutEvent.state.world.snail.etaMs ?? 0) / 2, 0);
+  });
+
+  it('velocidadeContraAlvoNoEstado não altera a perseguição quando o alvo mora fora do estado ativo', async () => {
+    async function setup(preActivate: boolean) {
+      const store = new MemoryCaracolStore();
+      if (preActivate) {
+        await store.saveRegionalEvents([{ uf: REGIONAL_TEST_UF_CHASE_TARGET, activeEventId: 'mg-teste-velocidade-alvo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+      }
+      const harness = await createHarness(store, { regionalEventsCatalog: chaseAgainstOnlyCatalog() });
+      const player = await connectClient(harness.address);
+      await register(player, 'Alvo2');
+      await selectCity(player, '1200013'); // AC, fora do estado do evento
+      harness.now.value += 50_000;
+      expect((await buySpeed(player)).ok).toBe(true);
+      return sync(player);
+    }
+
+    const withEvent = await setup(true);
+    const withoutEvent = await setup(false);
+    expect(withEvent.ok && withoutEvent.ok).toBe(true);
+    if (!withEvent.ok || !withoutEvent.ok) return;
+    expect(withEvent.state.world.snail.etaMs).toBeCloseTo(withoutEvent.state.world.snail.etaMs ?? 0, 0);
+  });
+
+  it('escondeJogador ativo faz hidden:true no stateFor da conta, mesmo sem Blooper', async () => {
+    const catalog: CaracolRegionalEventDefinition[] = [{
+      id: 'am-teste-esconde',
+      uf: 'AM',
+      nome: 'Evento de teste esconde',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'escondeJogador' },
+    }];
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'AM', activeEventId: 'am-teste-esconde', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: catalog });
+    const player = await connectClient(harness.address);
+    await register(player, 'Escondido');
+    await selectCity(player, '1300029'); // Alvarães, AM
+
+    const state = await sync(player);
+    expect(state.ok).toBe(true);
+    if (!state.ok) return;
+    expect(state.state.world.snail.hidden).toBe(true);
+    expect(state.state.world.snail.lat).toBeNull();
+  });
+
+  it('etaBorrado ativo arredonda etaMs/distanceKm ao passo configurado, sem esconder o resto do estado', async () => {
+    const stepMinutos = 30;
+    const stepKm = 50;
+    const catalog: CaracolRegionalEventDefinition[] = [{
+      id: 'ce-teste-eta',
+      uf: 'CE',
+      nome: 'Seca de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'etaBorrado', passoMinutos: stepMinutos, passoKm: stepKm },
+    }];
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'CE', activeEventId: 'ce-teste-eta', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: catalog });
+    const player = await connectClient(harness.address);
+    await register(player, 'Nebuloso');
+    await selectCity(player, '2300101'); // Abaiara, CE
+
+    const state = await sync(player);
+    expect(state.ok).toBe(true);
+    if (!state.ok) return;
+    expect(state.state.world.snail.hidden).toBe(false);
+    expect(state.state.world.snail.lat).not.toBeNull();
+    const distance = state.state.world.snail.distanceKm!;
+    const etaMs = state.state.world.snail.etaMs!;
+    expect(distance % stepKm).toBe(0);
+    expect(etaMs % (stepMinutos * 60_000)).toBe(0);
+  });
+});
+
+describe('escudo de carga regional', () => {
+  function escudoCatalog(): CaracolRegionalEventDefinition[] {
+    return [{
+      id: 'pa-teste-escudo',
+      uf: 'PA',
+      nome: 'Círio de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'escudoContaCarga' },
+    }];
+  }
+
+  it('absorve o próximo ataque contra uma conta no estado com escudo de carga ativo e grava a claim', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'PA', activeEventId: 'pa-teste-escudo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: escudoCatalog() });
+    const attacker = await connectClient(harness.address);
+    const target = await connectClient(harness.address);
+    await register(attacker, 'Atacante');
+    const targetCreated = await register(target, 'Protegido');
+    expect(targetCreated.ok).toBe(true);
+    if (!targetCreated.ok) return;
+    await selectCity(attacker, '5300108'); // DF
+    await selectCity(target, '1500107'); // Abaetetuba, PA
+
+    harness.now.value += 20_000; // acumula moedas para pagar o redirecionamento
+    const redirected = await redirect(attacker, 'Protegido');
+    expect(redirected.ok).toBe(true);
+    if (!redirected.ok) return;
+    // absorvido: o alvo do caracol continua sendo quem já era (não virou "Protegido")
+    expect(redirected.state.world.snail.targetNickname).not.toBe('Protegido');
+
+    expect(await store.hasRegionalClaim('PA', 0, targetCreated.accountId)).toBe(true);
+  });
+
+  it('não absorve uma segunda vez na mesma ativação (só um Casco defensivo de item absorveria de novo)', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'PA', activeEventId: 'pa-teste-escudo', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: escudoCatalog() });
+    const attacker = await connectClient(harness.address);
+    const target = await connectClient(harness.address);
+    await register(attacker, 'Atacante2');
+    await register(target, 'Protegido2');
+    await selectCity(attacker, '5300108');
+    await selectCity(target, '1500107');
+
+    harness.now.value += 40_000; // moedas para dois redirecionamentos
+    const first = await redirect(attacker, 'Protegido2');
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.state.world.snail.targetNickname).not.toBe('Protegido2');
+
+    const second = await redirect(attacker, 'Protegido2');
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    // segunda tentativa na mesma ativação: já não há escudo regional disponível, o ataque vale
+    expect(second.state.world.snail.targetNickname).toBe('Protegido2');
+  });
+});
+
+describe('bônus resgatável regional', () => {
+  const BONUS_VALUE = 40;
+
+  function bonusCatalog(): CaracolRegionalEventDefinition[] {
+    return [{
+      id: 'sc-teste-bonus',
+      uf: 'SC',
+      nome: 'Oktoberfest de teste',
+      perfil: 'sazonal',
+      mesesElegiveis: ALL_MONTHS,
+      duracaoMs: null,
+      jogador: { tipo: 'bonusResgatavel', valor: BONUS_VALUE },
+    }];
+  }
+
+  it('resgata o bônus ativo e credita exatamente o valor configurado, uma vez', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'SC', activeEventId: 'sc-teste-bonus', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: bonusCatalog() });
+    const player = await connectClient(harness.address);
+    const created = await register(player, 'Festeiro');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    await selectCity(player, '4200051'); // Abdon Batista, SC
+
+    const claimed = await regionalClaim(player);
+    expect(claimed.ok).toBe(true);
+    if (!claimed.ok) return;
+    expect(claimed.state.you.coins).toBe(CARACOL_STARTING_COINS + BONUS_VALUE);
+  });
+
+  it('recusa um segundo resgate na mesma ativação com REGIONAL_ALREADY_CLAIMED, sem creditar de novo', async () => {
+    const store = new MemoryCaracolStore();
+    await store.saveRegionalEvents([{ uf: 'SC', activeEventId: 'sc-teste-bonus', activatedAt: 0, expiresAt: null, lastActivatedAt: 0 }]);
+    const harness = await createHarness(store, { regionalEventsCatalog: bonusCatalog() });
+    const player = await connectClient(harness.address);
+    await register(player, 'Festeiro2');
+    await selectCity(player, '4200051');
+
+    const first = await regionalClaim(player);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const balanceAfterFirst = first.state.you.coins;
+
+    const second = await regionalClaim(player);
+    expect(second.ok).toBe(false);
+    if (second.ok) return;
+    expect(second.code).toBe('REGIONAL_ALREADY_CLAIMED');
+
+    const state = await sync(player);
+    expect(state.ok).toBe(true);
+    if (!state.ok) return;
+    expect(state.state.you.coins).toBe(balanceAfterFirst);
   });
 });

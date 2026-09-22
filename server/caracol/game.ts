@@ -40,7 +40,9 @@ import {
   CARACOL_STARTING_COINS,
   emptyCaracolOutfit,
   type CaracolCity,
+  type CaracolRegionalEventDefinition,
 } from '../../shared/caracol';
+import { CARACOL_REGIONAL_EVENTS_CATALOG } from '../../shared/caracol-regional-events';
 import type {
   ClientToServerEvents,
   InterServerEvents,
@@ -64,6 +66,17 @@ import {
   type CaracolWorldRecord,
 } from './store';
 import { CaracolPushService } from './push';
+import {
+  evaluate as evaluateRegionalEventsPlan,
+  emptyRegionalEventState,
+  validateCatalog as validateRegionalEventsCatalog,
+  REGIONAL_UF_CODES,
+  priceFactorFor,
+  worldSpeedFactor,
+  chaseSpeedFactorAgainst,
+  playerViewOverridesFor,
+  type RegionalEventState,
+} from './regional-events';
 
 type CaracolSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 type CaracolIo = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -79,6 +92,8 @@ interface CaracolManagerOptions {
   /** Sorteio da roleta; injetável como o relógio para os testes escolherem o item. */
   random?: () => number;
   autoTick?: boolean;
+  /** Catálogo de eventos regionais; injetável para teste (produção usa `CARACOL_REGIONAL_EVENTS_CATALOG`). */
+  regionalEventsCatalog?: readonly CaracolRegionalEventDefinition[];
 }
 
 /**
@@ -112,6 +127,8 @@ const APPROACHING_ETA_MS = 10 * 60_000;
 const TICK_MS = 1_000;
 const BANANA_SPEED_FACTOR = 1.5;
 const BOOMERANG_SHARE_DIVISOR = 5;
+/** Cadência da reavaliação do clima regional (REGCLIM-01, spec). */
+const REGIONAL_EVAL_INTERVAL_MS = 30 * 60_000;
 
 export class CaracolGameManager {
   private readonly store: CaracolStore;
@@ -125,6 +142,10 @@ export class CaracolGameManager {
   private readonly approachingSent = new Set<string>();
   private readonly push: CaracolPushService;
   private readonly readyPromise: Promise<void>;
+  private readonly regionalEventsCatalog: readonly CaracolRegionalEventDefinition[];
+  private regionalEventsByUf = new Map<string, RegionalEventState>();
+  /** Definido no boot (constructor); a primeira avaliação real só roda 30min depois. */
+  private lastRegionalEvalAt: number;
   private world!: CaracolWorldRecord;
   private tickTimer: NodeJS.Timeout | null = null;
   private tickInFlight = false;
@@ -134,6 +155,9 @@ export class CaracolGameManager {
     this.store = options.store ?? createCaracolStore();
     this.clock = options.clock ?? (() => Date.now());
     this.random = options.random ?? Math.random;
+    this.regionalEventsCatalog = options.regionalEventsCatalog ?? CARACOL_REGIONAL_EVENTS_CATALOG;
+    validateRegionalEventsCatalog(this.regionalEventsCatalog);
+    this.lastRegionalEvalAt = this.clock();
     this.push = new CaracolPushService((endpoint) => this.removePushSubscription(endpoint));
     this.readyPromise = this.initialize();
     if (options.autoTick !== false) {
@@ -158,6 +182,17 @@ export class CaracolGameManager {
     for (const subscription of snapshot.pushSubscriptions) this.pushSubscriptions.set(subscription.endpoint, subscription);
     this.effects.clear();
     for (const effect of snapshot.effects) this.effects.set(effect.id, effect);
+    this.sessions.clear();
+    for (const session of snapshot.sessions) this.sessions.set(session.tokenHash, session.accountId);
+    this.regionalEventsByUf = new Map(REGIONAL_UF_CODES.map((uf) => [uf, emptyRegionalEventState()]));
+    for (const record of snapshot.regionalEvents) {
+      this.regionalEventsByUf.set(record.uf, {
+        activeEventId: record.activeEventId,
+        activatedAt: record.activatedAt,
+        expiresAt: record.expiresAt,
+        lastActivatedAt: record.lastActivatedAt,
+      });
+    }
 
     await this.tickInternal(this.clock(), false);
   }
@@ -186,6 +221,7 @@ export class CaracolGameManager {
     socket.on('caracol:push-subscribe', (payload, ack) => { void this.afterReady(() => this.subscribePush(socket, payload, ack)); });
     socket.on('caracol:push-unsubscribe', (payload, ack) => { void this.afterReady(() => this.unsubscribePush(socket, payload, ack)); });
     socket.on('caracol:history', (payload, ack) => { void this.afterReady(() => this.history(socket, payload, ack)); });
+    socket.on('caracol:regional-claim', (ack) => { void this.afterReady(() => this.enqueueMutation(() => this.claimRegionalBonus(socket, ack))); });
     socket.on('caracol:logout', () => { void this.afterReady(() => this.logout(socket)); });
     socket.on('disconnect', () => { void this.afterReady(() => this.disconnect(socket)); });
   }
@@ -260,7 +296,7 @@ export class CaracolGameManager {
         createdAt: now,
       });
       await this.ensureTarget();
-      const sessionToken = this.issueSession(socket, runtime);
+      const sessionToken = await this.issueSession(socket, runtime);
       ack({ ok: true, accountId: runtime.id, nickname: runtime.nickname, sessionToken, state: this.stateFor(runtime) });
       this.broadcastState();
     } catch (error) {
@@ -283,7 +319,7 @@ export class CaracolGameManager {
     const now = this.clock();
     await this.attachSocket(socket, account, now);
     await this.ensureTarget();
-    const sessionToken = this.issueSession(socket, account);
+    const sessionToken = await this.issueSession(socket, account);
     ack({ ok: true, accountId: account.id, nickname: account.nickname, sessionToken, state: this.stateFor(account) });
     this.broadcastState();
   }
@@ -411,7 +447,8 @@ export class CaracolGameManager {
     const plan: CommitPlan = { accounts: [[account, (payer) => { payer.coins = Math.max(0, payer.coins - cost); }]] };
     if (fireFlower) this.spendCharge(fireFlower, plan);
     const shield = this.activeEffect(target.id, 'shield', now);
-    if (shield) {
+    const regionalShield = shield ? null : await this.claimRegionalShield(target, now);
+    if (shield || regionalShield) {
       await this.absorbAttack(account, target, shield, plan, ack, {
         type: 'redirect',
         message: `${account.nickname} tentou mandar o caracol atrás de ${target.nickname}, mas bateu no Casco defensivo${cost > 0 ? ` e perdeu ${cost} moedas` : ''}.`,
@@ -683,7 +720,8 @@ export class CaracolGameManager {
     const plan: CommitPlan = {};
     this.spendCharge(charge, plan);
     const shield = this.activeEffect(target.id, 'shield', now);
-    if (shield) {
+    const regionalShield = shield ? null : await this.claimRegionalShield(target, now);
+    if (shield || regionalShield) {
       await this.absorbAttack(account, target, shield, plan, ack, {
         type: 'roulette',
         message: `${account.nickname} lançou o Bumerangue em ${target.nickname}, mas ele bateu no Casco defensivo.`,
@@ -718,21 +756,82 @@ export class CaracolGameManager {
    * O escudo absorve o ataque: o atacante já pagou (ou gastou a carga), o
    * escudo se gasta e nada mais acontece. A resposta é sucesso porque a ação
    * aconteceu e foi cobrada; o aviso `shield` conta aos dois o que houve.
+   * `shield` é `null` quando quem absorveu foi o escudo de carga regional
+   * (já reservado por `claimRegionalShield` antes desta chamada).
    */
   private async absorbAttack(
     attacker: RuntimeAccount,
     target: RuntimeAccount,
-    shield: CaracolEffectRecord,
+    shield: CaracolEffectRecord | null,
     plan: CommitPlan,
     ack: (result: CaracolActionResult) => void,
     history: Omit<CaracolHistoryRecord, 'id'>,
   ): Promise<void> {
-    this.spendCharge(shield, plan);
+    if (shield) this.spendCharge(shield, plan);
     if (!(await this.commitPlan(plan, ack))) return;
     await this.recordHistory(history);
     this.noticeAccount(attacker, 'shield', `${target.nickname} tinha um Casco defensivo. Seu ataque foi bloqueado.`);
     this.noticeAccount(target, 'shield', `Seu Casco defensivo bloqueou um ataque de ${attacker.nickname}.`);
     ack({ ok: true, state: this.stateFor(attacker) });
+    this.broadcastState();
+  }
+
+  /**
+   * Escudo de carga regional (`escudoContaCarga`, ex: Círio de Nazaré): igual
+   * a ter Casco defensivo, mas nunca concedido — é derivado do estado ativo
+   * no `cityUf` do alvo. Consome na hora via `caracol_regional_claims` (uma
+   * absorção por conta, por ativação); devolve `false` quando não há escudo
+   * disponível ou já foi usado nesta ativação.
+   * ponytail: a claim é gravada antes do `commitPlan` do absorvimento (tabelas
+   * diferentes, sem transação cruzada); se o `commitPlan` falhar depois, a
+   * claim já ficou consumida. Mesmo risco que outras falhas de gravação já
+   * tratadas no arquivo (ex: giro da roleta); aceitável até haver evidência de
+   * que acontece na prática.
+   */
+  private async claimRegionalShield(target: RuntimeAccount, now: number): Promise<boolean> {
+    const uf = target.cityUf;
+    if (!uf) return false;
+    const state = this.regionalEventsByUf.get(uf);
+    if (!state?.activeEventId || state.activatedAt === null) return false;
+    const event = this.regionalEventsCatalog.find((candidate) => candidate.id === state.activeEventId);
+    if (event?.jogador?.tipo !== 'escudoContaCarga') return false;
+    return this.store.recordRegionalClaim({ uf, activatedAt: state.activatedAt, accountId: target.id, eventId: event.id, claimedAt: now });
+  }
+
+  /**
+   * Resgate do bônus fixo de um evento `bonusResgatavel` (ex: Oktoberfest de
+   * SC) ativo no estado da conta: uma vez por conta, por ativação, mesma
+   * tabela de claim do escudo de carga (T6).
+   */
+  private async claimRegionalBonus(socket: CaracolSocket, ack: (result: CaracolActionResult) => void): Promise<void> {
+    const account = this.authenticatedAccount(socket, ack);
+    if (!account) return;
+    const now = this.clock();
+    const uf = account.cityUf;
+    const state = uf ? this.regionalEventsByUf.get(uf) : undefined;
+    const event = state?.activeEventId ? this.regionalEventsCatalog.find((candidate) => candidate.id === state.activeEventId) : undefined;
+    if (!uf || !state?.activeEventId || state.activatedAt === null || event?.jogador?.tipo !== 'bonusResgatavel') {
+      ack(this.failure('REGIONAL_NO_BONUS', 'Não há bônus regional para resgatar agora.'));
+      return;
+    }
+    const recorded = await this.store.recordRegionalClaim({ uf, activatedAt: state.activatedAt, accountId: account.id, eventId: event.id, claimedAt: now });
+    if (!recorded) {
+      ack(this.failure('REGIONAL_ALREADY_CLAIMED', 'Você já resgatou esse bônus nesta ativação.'));
+      return;
+    }
+    await this.settleCoins(account);
+    const value = event.jogador.valor;
+    const committed = await this.commitPlan({ accounts: [[account, (target) => { target.coins += value; }]] }, ack);
+    if (!committed) return;
+    await this.recordHistory({
+      type: 'coins',
+      message: `${account.nickname} resgatou ${value} moeda${value === 1 ? '' : 's'} de ${event.nome}.`,
+      actorNickname: account.nickname,
+      targetNickname: null,
+      amount: value,
+      createdAt: now,
+    });
+    ack({ ok: true, state: this.stateFor(account) });
     this.broadcastState();
   }
 
@@ -924,7 +1023,7 @@ export class CaracolGameManager {
   }
 
   private async logout(socket: CaracolSocket): Promise<void> {
-    this.revokeSession(socket);
+    await this.revokeSession(socket);
     await this.detachSocket(socket);
     this.broadcastState();
   }
@@ -945,18 +1044,22 @@ export class CaracolGameManager {
     socket.data.caracolAccountId = account.id;
   }
 
-  private issueSession(socket: CaracolSocket, account: RuntimeAccount): string {
-    this.revokeSession(socket);
+  private async issueSession(socket: CaracolSocket, account: RuntimeAccount): Promise<string> {
+    await this.revokeSession(socket);
     const sessionToken = randomBytes(32).toString('base64url');
     const tokenHash = this.hashSessionToken(sessionToken);
     this.sessions.set(tokenHash, account.id);
     socket.data.caracolSessionTokenHash = tokenHash;
+    await this.store.createSession(tokenHash, account.id);
     return sessionToken;
   }
 
-  private revokeSession(socket: CaracolSocket): void {
+  private async revokeSession(socket: CaracolSocket): Promise<void> {
     const tokenHash = socket.data.caracolSessionTokenHash;
-    if (tokenHash) this.sessions.delete(tokenHash);
+    if (tokenHash) {
+      this.sessions.delete(tokenHash);
+      await this.store.deleteSession(tokenHash);
+    }
     delete socket.data.caracolSessionTokenHash;
   }
 
@@ -1034,19 +1137,29 @@ export class CaracolGameManager {
     return this.world.speedLevel === 0 ? CARACOL_BASE_SPEED_KMH : this.world.speedLevel * 100;
   }
 
-  /** Velocidade real da perseguição: a Banana acelera só contra o próprio dono. */
+  /**
+   * Velocidade real da perseguição: a Banana acelera só contra o próprio dono;
+   * `velocidadeMundo` de qualquer estado ativo acelera contra todo mundo; e
+   * `velocidadeContraAlvoNoEstado` só quando o alvo mora no estado ativo.
+   */
   private chaseSpeedKmh(target: RuntimeAccount | undefined, now = this.clock()): number {
-    return this.speedKmh() * (target && this.activeEffect(target.id, 'banana', now) ? BANANA_SPEED_FACTOR : 1);
+    const banana = target && this.activeEffect(target.id, 'banana', now) ? BANANA_SPEED_FACTOR : 1;
+    const world = worldSpeedFactor(this.regionalEventsCatalog, this.regionalEventsByUf);
+    const against = chaseSpeedFactorAgainst(this.regionalEventsCatalog, target?.cityUf ?? null, this.regionalEventsByUf);
+    return this.speedKmh() * banana * world * against;
   }
 
   /**
    * Fórmula única de preço: max(piso, floor(base × 0,75^desconto × fatores)).
    * A tela e a cobrança leem daqui, então nunca discordam. O desconto pessoal
-   * só entra onde já entrava (redirect e aceleração); Moeda e Raio entram em tudo.
+   * só entra onde já entrava (redirect e aceleração); Moeda, Raio e o evento
+   * regional (`precoConta`) ativo no estado da conta entram em tudo.
    */
   private price(account: CaracolAccountRecord, baseCost: number, minimum: number, withDiscount: boolean): number {
     const now = this.clock();
-    const factor = (this.activeEffect(account.id, 'coin', now) ? 0.5 : 1) * (this.activeEffect(null, 'lightning', now) ? 2 : 1);
+    const factor = (this.activeEffect(account.id, 'coin', now) ? 0.5 : 1)
+      * (this.activeEffect(null, 'lightning', now) ? 2 : 1)
+      * priceFactorFor(this.regionalEventsCatalog, account.cityUf, this.regionalEventsByUf);
     const discount = withDiscount ? 0.75 ** account.speedDiscountLevel : 1;
     return Math.max(minimum, Math.floor(baseCost * discount * factor));
   }
@@ -1135,6 +1248,28 @@ export class CaracolGameManager {
     }
   }
 
+  /**
+   * Reavalia o clima regional a cada 30 minutos (REGCLIM-01): decide quais
+   * estados ativam/desativam evento, persiste só o que mudou e avisa a
+   * ativação/desativação pelo mesmo canal de aviso global (REGCLIM-05).
+   */
+  private async evaluateRegionalEvents(now: number): Promise<void> {
+    if (now - this.lastRegionalEvalAt < REGIONAL_EVAL_INTERVAL_MS) return;
+    this.lastRegionalEvalAt = now;
+    const plan = evaluateRegionalEventsPlan(this.regionalEventsCatalog, now, this.regionalEventsByUf, this.random);
+    this.regionalEventsByUf = plan.nextByUf;
+    if (plan.activations.length === 0 && plan.deactivations.length === 0) return;
+
+    const changedUfs = new Set([...plan.activations.map((change) => change.uf), ...plan.deactivations.map((change) => change.uf)]);
+    const records = Array.from(changedUfs, (uf) => {
+      const state = plan.nextByUf.get(uf)!;
+      return { uf, activeEventId: state.activeEventId, activatedAt: state.activatedAt, expiresAt: state.expiresAt, lastActivatedAt: state.lastActivatedAt };
+    });
+    await this.store.saveRegionalEvents(records);
+    for (const { uf, event } of plan.activations) this.ioNotice('regional-event', `${event.nome} começou em ${uf}.`);
+    for (const { uf, event } of plan.deactivations) this.ioNotice('regional-event', `${event.nome} terminou em ${uf}.`);
+  }
+
   private async runTick(): Promise<void> {
     if (this.tickInFlight) return;
     this.tickInFlight = true;
@@ -1152,6 +1287,7 @@ export class CaracolGameManager {
     const elapsedMs = Math.max(0, now - this.world.lastTickAt);
     this.world.lastTickAt = now;
     await this.expireEffects(now);
+    await this.evaluateRegionalEvents(now);
     for (const account of this.accounts.values()) {
       if (account.sockets.size === 0) continue;
       const gainedIntervals = this.accrueCoins(account, now, true);
@@ -1283,7 +1419,14 @@ export class CaracolGameManager {
       ? distanceKm({ lat: this.world.snailLat, lon: this.world.snailLon }, { lat: target.cityLat, lon: target.cityLon })
       : null;
     // Blooper esconde no servidor: a posição nunca sai daqui para quem tem tinta.
-    const hidden = this.activeEffect(account.id, 'blooper', now) !== null;
+    // escondeJogador (evento regional do estado da conta) esconde do mesmo jeito.
+    const regionalView = playerViewOverridesFor(this.regionalEventsCatalog, account.cityUf, this.regionalEventsByUf);
+    const hidden = this.activeEffect(account.id, 'blooper', now) !== null || regionalView.hidden;
+    const rawEtaMs = hidden || distance === null ? null : distance / this.chaseSpeedKmh(target, now) * 3_600_000;
+    // etaBorrado (ex: seca do Ceará): arredonda distância/ETA a uma faixa grosseira, sem esconder o resto do estado.
+    const bucket = !hidden ? regionalView.etaBucket : null;
+    const distanceOut = hidden ? null : bucket ? Math.round(distance! / bucket.km) * bucket.km : distance;
+    const etaOut = rawEtaMs === null ? null : bucket ? Math.round(rawEtaMs / (bucket.minutos * 60_000)) * (bucket.minutos * 60_000) : rawEtaMs;
     return {
       world: {
         snail: {
@@ -1295,8 +1438,8 @@ export class CaracolGameManager {
           speedCost: this.speedCost(account),
           targetAccountId: target?.id ?? null,
           targetNickname: target?.nickname ?? null,
-          distanceKm: hidden ? null : distance,
-          etaMs: hidden || distance === null ? null : distance / this.chaseSpeedKmh(target, now) * 3_600_000,
+          distanceKm: distanceOut,
+          etaMs: etaOut,
           redirectCost: this.redirectCost(account),
           outfit: { ...this.world.snailCosmeticOutfit },
         },

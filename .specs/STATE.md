@@ -34,6 +34,22 @@
 - **Date**: 2026-08-09
 - **Status**: active
 
+### AD-005
+- **Decision**: Sessões do Caracol (`caracol:resume`) passam a ser persistidas no Postgres (`caracol_sessions`, hash do token + accountId), não só em memória. Sem expiração automática — mesmo comportamento de hoje, só que sobrevive a restart.
+- **Reason**: `CaracolGameManager.sessions` era um `Map` só em memória, nunca recarregado do snapshot. Qualquer reinício do processo (deploy, crash, hibernação/wake do Render) zerava o mapa inteiro; o próximo `caracol:resume` de qualquer jogador caía em `SESSION_EXPIRED`, mesmo com a conta intacta no banco. As duas queixas do dono do projeto ("sessão expira sozinha" e "deploy desloga todo mundo") tinham a mesma causa raiz.
+- **Trade-off**: Sessão nunca expira sozinha — um token vazado ou um dispositivo perdido continua válido até logout explícito. Aceito porque o jogo já não tem recuperação de senha nem multiconta por natureza; adicionar TTL fica fácil de acrescentar depois (`created_at` já é gravado).
+- **Scope**: `server/caracol/store.ts` (`caracol_sessions`, `CaracolStore.createSession/deleteSession`), `server/caracol/game.ts` (`initialize()`, `issueSession()`, `revokeSession()`).
+- **Date**: 2026-09-21
+- **Status**: active
+
+### AD-006
+- **Decision**: Efeito ligado a "onde o jogador está" nunca é concedido a uma conta (nada de linha em `caracol_effects` por conta); é sempre derivado, na hora da leitura, do `cityUf` atual da conta comparado ao estado ativo do momento. Padrão introduzido pelos eventos regionais do Caracol (`.specs/features/caracol-eventos-regionais/`).
+- **Reason**: Um efeito concedido precisaria de código extra pra revogar/reconceder quando a conta muda de cidade (via Cogumelo); derivar ao vivo resolve esse caso de graça, porque o efeito simplesmente para de valer quando o `cityUf` muda, sem nenhuma ação explícita.
+- **Trade-off**: Todo ponto de leitura (`price()`, `chaseSpeedKmh()`, `stateFor()`) precisa checar o estado regional a cada chamada, em vez de só ler uma flag já resolvida. Aceito porque a checagem é O(1) contra um mapa em memória, o mesmo custo de checar um efeito por conta hoje.
+- **Scope**: `server/caracol/regional-events.ts`, `server/caracol/game.ts` (`price()`, `chaseSpeedKmh()`, `stateFor()`), e qualquer feature futura que precise de "efeito por localização atual" em vez de "efeito concedido a uma conta".
+- **Date**: 2026-09-21
+- **Status**: active
+
 ## Handoff
 - **Feature**: powerup-de-dica (`.specs/features/powerup-de-dica/`) — **concluída**
 - **Phase / Task**: 3 fases, 11 tasks (T1..T11) + 3 correções; 2 rodadas de Verifier; veredito PASS, 8/8 mutantes mortos

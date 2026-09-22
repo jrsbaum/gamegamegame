@@ -291,6 +291,9 @@ export interface ClientToServerEvents {
   'caracol:push-unsubscribe': (payload: { endpoint: string }, ack: (result: CaracolActionResult) => void) => void;
   'caracol:history': (payload: CaracolHistoryInput, ack: (result: CaracolHistoryResult) => void) => void;
   'caracol:logout': () => void;
+  // Resgate do bônus de um evento regional `bonusResgatavel` (ex: Oktoberfest de
+  // SC) ativo no estado da conta; uma vez por conta, por ativação.
+  'caracol:regional-claim': (ack: (result: CaracolActionResult) => void) => void;
 }
 
 export interface ServerToClientEvents {
