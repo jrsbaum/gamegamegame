@@ -1,4 +1,4 @@
-name: gamegamegame-caracol
+name: gamegamegame-caracol-hml
 
 services:
   caracol:
@@ -12,12 +12,12 @@ services:
       GAME_SERVICE: caracol
       HOST: 0.0.0.0
       PORT: 3001
-      PUBLIC_ORIGIN: https://${CARACOL_DOMAIN}
+      PUBLIC_ORIGIN: https://hml-caracol.gamegamegame.site
       VITE_SERVER_URL: ""
-      CARACOL_DATABASE_URL: postgresql://caracol:${CARACOL_POSTGRES_PASSWORD}@postgres:5432/caracol
-      CARACOL_VAPID_PUBLIC_KEY: ${CARACOL_VAPID_PUBLIC_KEY}
-      CARACOL_VAPID_PRIVATE_KEY: ${CARACOL_VAPID_PRIVATE_KEY}
-      CARACOL_VAPID_SUBJECT: ${CARACOL_VAPID_SUBJECT}
+      CARACOL_DATABASE_URL: postgresql://caracol_hml:caracol_hml@postgres:5432/caracol_hml
+      CARACOL_VAPID_PUBLIC_KEY: ${CARACOL_HML_VAPID_PUBLIC_KEY:-}
+      CARACOL_VAPID_PRIVATE_KEY: ${CARACOL_HML_VAPID_PRIVATE_KEY:-}
+      CARACOL_VAPID_SUBJECT: ${CARACOL_HML_VAPID_SUBJECT:-mailto:hml@gamegamegame.site}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
@@ -36,19 +36,19 @@ services:
       traefik.docker.network: dokploy-network
 
   postgres:
-    image: postgres:18
+    image: postgres:16-alpine
     environment:
-      POSTGRES_DB: caracol
-      POSTGRES_USER: caracol
-      POSTGRES_PASSWORD: ${CARACOL_POSTGRES_PASSWORD}
+      POSTGRES_DB: caracol_hml
+      POSTGRES_USER: caracol_hml
+      POSTGRES_PASSWORD: ${CARACOL_HML_POSTGRES_PASSWORD:-caracol_hml}
     volumes:
       - type: volume
-        source: caracol-postgres
-        target: /var/lib/postgresql/18/docker
+        source: caracol-hml-postgres
+        target: /var/lib/postgresql/data
         volume:
           nocopy: true
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U caracol -d caracol"]
+      test: ["CMD-SHELL", "pg_isready -U caracol_hml -d caracol_hml"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -57,9 +57,9 @@ services:
       - private
 
 volumes:
-  caracol-postgres:
+  caracol-hml-postgres:
     external: true
-    name: ${CARACOL_POSTGRES_VOLUME:?Set CARACOL_POSTGRES_VOLUME to the existing production volume name}
+    name: gamegamegame-staging-caracol-postgres
 
 networks:
   private:

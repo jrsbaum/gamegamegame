@@ -5,6 +5,10 @@ o frontend React/Vite, o servidor Express + Socket.IO, os contratos do jogo, o
 store PostgreSQL/in-memory, autenticação por nick e senha, notificações Push
 com VAPID, service worker, assets do mapa e os testes do modo.
 
+Domínio de produção: `https://caracol.gamegamegame.site`. O serviço expõe
+`/healthz` e Socket.IO na mesma origem do frontend. O PostgreSQL do Caracol é
+exclusivo desta aplicação e mantém as tabelas `caracol_*`.
+
 ## Desenvolvimento
 
 ```bash
@@ -38,6 +42,13 @@ servidor serve o frontend quando `dist/index.html` existe e expõe `/healthz`
 mais o Socket.IO do Caracol. `VITE_SERVER_URL` é lida no build para permitir
 frontend e servidor em domínios diferentes; vazia, o cliente usa a mesma
 origem.
+
+## Deploy
+
+O Compose e o Dockerfile ficam em `infra/dokploy/caracol` e
+`infra/docker/gamegamegame.Dockerfile`. O deploy oficial usa o repositório
+`jrsbaum/gamegamegame`, a branch `main`, a rede `dokploy-network` e o volume
+PostgreSQL já existente informado por `CARACOL_POSTGRES_VOLUME`.
 
 ## Dependências necessárias
 

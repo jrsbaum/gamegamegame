@@ -3,10 +3,13 @@
 MVP multiplayer de fazenda compartilhada: mapa persistente, personagem
 customizável, produção, criação de animais e economia em moedas.
 
-Esta é a cópia integrada em `apps/lafarmer/`. O workspace é independente do
-aplicativo legado em `lafarmer/` e mantém os pacotes compartilhados, o cliente
-Vite/Phaser, o servidor Fastify/WebSocket e a persistência PostgreSQL dentro
-desta pasta.
+Esta é a aplicação oficial em `apps/lafarmer/`. O workspace mantém os pacotes
+de conteúdo, o cliente Vite/Phaser, o servidor Fastify/WebSocket e a
+persistência PostgreSQL dentro desta pasta.
+
+Domínio de produção: `https://lafarmer.gamegamegame.site`. O frontend, a API,
+o WebSocket e o PostgreSQL são publicados como um Compose próprio dentro do
+projeto `GameGameGame` no Dokploy.
 
 ## Desenvolvimento
 
@@ -30,6 +33,11 @@ recuperação automática. A confirmação de que o jogador guardou as credencia
 
 ## Deploy
 
-Os artefatos de container e o runbook de Dokploy estão em `infra/` e `docs/`.
+Os artefatos de container e o runbook de Dokploy estão em `infra/`.
+
+O Compose usa `infra/dokploy/lafarmer/docker-compose.yml`, a branch `main`, a
+rede `dokploy-network` e o volume externo configurado por
+`LAFARMER_POSTGRES_VOLUME`. O volume de produção existente nunca deve ser
+substituído por um volume novo durante um deploy.
 
 O checklist de validação está em [`tests/README.md`](tests/README.md).

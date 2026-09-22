@@ -1,7 +1,8 @@
 # LaFarmer: visão geral
-> Subprojeto isolado em `lafarmer/` — jogo de fazenda multiplayer persistente, sem relação com "whoami"
+> Aplicação `apps/lafarmer/` do monorepo GameGameGame — jogo de fazenda
+> multiplayer persistente, com login, estado e banco isolados dos demais jogos.
 
-Entry: `lafarmer/README.md`, monorepo próprio com workspaces npm.
+Entry: `apps/lafarmer/README.md`, workspace npm interno ao monorepo oficial.
 
 ## O que é
 
@@ -10,7 +11,7 @@ MVP de fazenda multiplayer num mundo persistente e compartilhado. Cada jogador e
 ## Arquitetura (monorepo)
 
 ```
-lafarmer/
+apps/lafarmer/
 ├── apps/server   → Fastify + ws, autoritativo (game-service.ts, domain.ts, auth-service.ts, websocket-gateway.ts)
 ├── apps/web      → Vite + Phaser 4 (main.ts = state machine auth→onboarding→game, game.ts = WorldScene)
 ├── packages/content        → tipos/catálogos puros (ITEM_CATALOG, WORLD_REGIONS, constantes)
