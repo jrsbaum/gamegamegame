@@ -1,0 +1,38 @@
+name: gamegamegame-lobby
+
+services:
+  lobby:
+    build:
+      context: ../../..
+      dockerfile: infra/docker/gamegamegame.Dockerfile
+      args:
+        VITE_GAME_SERVICE: lobby
+    environment:
+      NODE_ENV: production
+      GAME_SERVICE: lobby
+      HOST: 0.0.0.0
+      PORT: 3001
+      PUBLIC_ORIGIN: https://${LOBBY_DOMAIN}
+      VITE_SERVER_URL: ""
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+      start_period: 8s
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.gamegamegame-lobby.rule: Host(`${LOBBY_DOMAIN}`)
+      traefik.http.routers.gamegamegame-lobby.entrypoints: websecure
+      traefik.http.routers.gamegamegame-lobby.tls: "true"
+      traefik.http.routers.gamegamegame-lobby.tls.certresolver: letsencrypt
+      traefik.http.services.gamegamegame-lobby.loadbalancer.server.port: "3001"
+
+networks:
+  proxy:
+    external: true
+    name: dokploy-network
