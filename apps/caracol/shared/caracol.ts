@@ -199,6 +199,40 @@ export interface CaracolStateView {
   pushPublicKey: string | null;
 }
 
+/**
+ * Efeito de um evento regional. `precoConta`/`saldoInstantaneo`/`escondeJogador`/
+ * `escudoContaCarga`/`etaBorrado`/`bonusResgatavel` são efeitos de jogador;
+ * `velocidadeMundo`/`velocidadeContraAlvoNoEstado` são os únicos aceitos como
+ * efeito de caracol. Nunca é gravado por conta: é derivado do `cityUf` atual
+ * na hora da leitura (AD-006, `.specs/STATE.md`).
+ */
+export type CaracolRegionalEffect =
+  | { tipo: 'precoConta'; multiplicador: number }
+  | { tipo: 'saldoInstantaneo'; delta: number }
+  | { tipo: 'escondeJogador' }
+  | { tipo: 'escudoContaCarga' }
+  | { tipo: 'etaBorrado'; passoMinutos: number; passoKm: number }
+  | { tipo: 'bonusResgatavel'; valor: number }
+  | { tipo: 'velocidadeMundo'; multiplicador: number }
+  | { tipo: 'velocidadeContraAlvoNoEstado'; multiplicador: number };
+
+/**
+ * Entrada do catálogo de clima regional (dado estático, não é tabela). Um
+ * evento sempre tem `jogador` e/ou `caracol`; `duracaoMs` é `null` só quando
+ * `perfil === 'sazonal'` (dura enquanto o mês estiver em `mesesElegiveis`).
+ */
+export interface CaracolRegionalEventDefinition {
+  id: string;
+  uf: string;
+  nome: string;
+  perfil: 'sazonal' | 'raro';
+  mesesElegiveis: number[];
+  chancePorHoraNaJanela?: number;
+  duracaoMs: number | null;
+  jogador?: CaracolRegionalEffect;
+  caracol?: CaracolRegionalEffect;
+}
+
 export interface CaracolRegisterInput {
   nickname: string;
   password: string;
@@ -321,6 +355,6 @@ export interface CaracolDeathPayload {
 }
 
 export interface CaracolNoticePayload {
-  code: 'targeted' | 'approaching' | 'speed' | 'redirected' | 'death' | 'discount' | 'shop' | 'roulette' | 'boomerang' | 'effect-expired' | 'shield';
+  code: 'targeted' | 'approaching' | 'speed' | 'redirected' | 'death' | 'discount' | 'shop' | 'roulette' | 'boomerang' | 'effect-expired' | 'shield' | 'regional-event';
   message: string;
 }

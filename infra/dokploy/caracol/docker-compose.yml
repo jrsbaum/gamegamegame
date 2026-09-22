@@ -6,7 +6,7 @@ services:
       context: ../../..
       dockerfile: infra/docker/gamegamegame.Dockerfile
       args:
-        VITE_GAME_SERVICE: caracol
+        GAME_APP: caracol
     environment:
       NODE_ENV: production
       GAME_SERVICE: caracol

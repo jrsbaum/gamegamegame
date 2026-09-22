@@ -86,11 +86,40 @@ export interface CaracolPushRecord {
   updatedAt: number;
 }
 
+export interface CaracolSessionRecord {
+  tokenHash: string;
+  accountId: string;
+}
+
+/** Uma linha por estado (27 no total). `activeEventId: null` é o estado normal (sem evento). */
+export interface CaracolRegionalEventRecord {
+  uf: string;
+  activeEventId: string | null;
+  activatedAt: number | null;
+  expiresAt: number | null;
+  lastActivatedAt: number | null;
+}
+
+/**
+ * Ação única por ativação (escudo de carga ou bônus resgatável). `activatedAt`
+ * é o mesmo da ativação em curso do evento — é o que torna a ação "por
+ * ocorrência" em vez de "por conta, para sempre". PK composta (uf, activatedAt, accountId).
+ */
+export interface CaracolRegionalClaimRecord {
+  uf: string;
+  activatedAt: number;
+  accountId: string;
+  eventId: string;
+  claimedAt: number;
+}
+
 export interface CaracolSnapshot {
   accounts: CaracolAccountRecord[];
   world: CaracolWorldRecord;
   pushSubscriptions: CaracolPushRecord[];
   effects: CaracolEffectRecord[];
+  sessions: CaracolSessionRecord[];
+  regionalEvents: CaracolRegionalEventRecord[];
 }
 
 export class CaracolNicknameTakenError extends Error {
@@ -115,6 +144,13 @@ export interface CaracolStore {
   }>;
   upsertPushSubscription(subscription: CaracolPushRecord): Promise<void>;
   deletePushSubscription(endpoint: string): Promise<void>;
+  createSession(tokenHash: string, accountId: string): Promise<void>;
+  deleteSession(tokenHash: string): Promise<void>;
+  loadRegionalEvents(): Promise<CaracolRegionalEventRecord[]>;
+  saveRegionalEvents(records: CaracolRegionalEventRecord[]): Promise<void>;
+  /** `true` se gravou; `false` se já existia claim para (uf, activatedAt, accountId) — não credita de novo. */
+  recordRegionalClaim(claim: CaracolRegionalClaimRecord): Promise<boolean>;
+  hasRegionalClaim(uf: string, activatedAt: number, accountId: string): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -235,6 +271,38 @@ CREATE TABLE IF NOT EXISTS caracol_effects (
 -- dois NULL nunca colidem, e o Raio (escopo mundo) não tem dono.
 CREATE UNIQUE INDEX IF NOT EXISTS caracol_effects_owner_item_idx
   ON caracol_effects (scope, (COALESCE(account_id, '')), item_id);
+
+-- Sobrevive a restart/deploy: sem isto, um reinício do processo zerava o mapa
+-- de sessões em memória e deslogava todo mundo (SESSION_EXPIRED). Guarda só o
+-- hash do token, nunca o token em si, mesma regra do mapa em memória.
+CREATE TABLE IF NOT EXISTS caracol_sessions (
+  token_hash TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES caracol_accounts(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS caracol_sessions_account_idx
+  ON caracol_sessions (account_id);
+
+-- Uma linha por estado (27 no total); ative/desative sobrevive a restart.
+CREATE TABLE IF NOT EXISTS caracol_regional_events (
+  uf TEXT PRIMARY KEY,
+  active_event_id TEXT,
+  activated_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ,
+  last_activated_at TIMESTAMPTZ
+);
+
+-- Ação única por ativação (escudo de carga ou bônus resgatável). PK composta
+-- garante que uma segunda tentativa na mesma ativação falha em vez de creditar de novo.
+CREATE TABLE IF NOT EXISTS caracol_regional_claims (
+  uf TEXT NOT NULL,
+  activated_at TIMESTAMPTZ NOT NULL,
+  account_id TEXT NOT NULL REFERENCES caracol_accounts(id) ON DELETE CASCADE,
+  event_id TEXT NOT NULL,
+  claimed_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (uf, activated_at, account_id)
+);
 `;
 
 /**
@@ -319,6 +387,20 @@ function effectFromRow(row: Record<string, unknown>): CaracolEffectRecord | null
   };
 }
 
+function regionalEventFromRow(row: Record<string, unknown>): CaracolRegionalEventRecord {
+  return {
+    uf: String(row.uf),
+    activeEventId: row.active_event_id === null ? null : String(row.active_event_id),
+    activatedAt: row.activated_at === null ? null : timestampFromValue(row.activated_at),
+    expiresAt: row.expires_at === null ? null : timestampFromValue(row.expires_at),
+    lastActivatedAt: row.last_activated_at === null ? null : timestampFromValue(row.last_activated_at),
+  };
+}
+
+function regionalClaimKey(uf: string, activatedAt: number, accountId: string): string {
+  return `${uf}:${activatedAt}:${accountId}`;
+}
+
 function pushFromRow(row: Record<string, unknown>): CaracolPushRecord {
   return {
     accountId: String(row.account_id),
@@ -334,7 +416,10 @@ export class MemoryCaracolStore implements CaracolStore {
   private readonly accounts = new Map<string, CaracolAccountRecord>();
   private readonly pushes = new Map<string, CaracolPushRecord>();
   private readonly effects = new Map<string, CaracolEffectRecord>();
+  private readonly sessions = new Map<string, string>();
   private readonly history: CaracolHistoryRecord[] = [];
+  private readonly regionalEvents = new Map<string, CaracolRegionalEventRecord>();
+  private readonly regionalClaims = new Set<string>();
   private nextHistoryId = 1;
   private world: CaracolWorldRecord = initialWorld();
 
@@ -349,6 +434,8 @@ export class MemoryCaracolStore implements CaracolStore {
       world: cloneWorld(this.world),
       pushSubscriptions: Array.from(this.pushes.values(), clonePush),
       effects: Array.from(this.effects.values(), cloneEffect),
+      sessions: Array.from(this.sessions, ([tokenHash, accountId]) => ({ tokenHash, accountId })),
+      regionalEvents: Array.from(this.regionalEvents.values(), (record) => ({ ...record })),
     };
   }
 
@@ -408,6 +495,33 @@ export class MemoryCaracolStore implements CaracolStore {
     this.pushes.delete(endpoint);
   }
 
+  async createSession(tokenHash: string, accountId: string): Promise<void> {
+    this.sessions.set(tokenHash, accountId);
+  }
+
+  async deleteSession(tokenHash: string): Promise<void> {
+    this.sessions.delete(tokenHash);
+  }
+
+  async loadRegionalEvents(): Promise<CaracolRegionalEventRecord[]> {
+    return Array.from(this.regionalEvents.values(), (record) => ({ ...record }));
+  }
+
+  async saveRegionalEvents(records: CaracolRegionalEventRecord[]): Promise<void> {
+    for (const record of records) this.regionalEvents.set(record.uf, { ...record });
+  }
+
+  async recordRegionalClaim(claim: CaracolRegionalClaimRecord): Promise<boolean> {
+    const key = regionalClaimKey(claim.uf, claim.activatedAt, claim.accountId);
+    if (this.regionalClaims.has(key)) return false;
+    this.regionalClaims.add(key);
+    return true;
+  }
+
+  async hasRegionalClaim(uf: string, activatedAt: number, accountId: string): Promise<boolean> {
+    return this.regionalClaims.has(regionalClaimKey(uf, activatedAt, accountId));
+  }
+
   async close(): Promise<void> {
     // Nothing to close.
   }
@@ -440,11 +554,13 @@ export class PgCaracolStore implements CaracolStore {
   }
 
   async loadSnapshot(): Promise<CaracolSnapshot> {
-    const [accounts, world, pushes, effects] = await Promise.all([
+    const [accounts, world, pushes, effects, sessions, regionalEvents] = await Promise.all([
       this.pool.query('SELECT * FROM caracol_accounts ORDER BY nickname'),
       this.pool.query('SELECT * FROM caracol_world WHERE id = $1', [WORLD_ID]),
       this.pool.query('SELECT * FROM caracol_push_subscriptions'),
       this.pool.query('SELECT * FROM caracol_effects'),
+      this.pool.query('SELECT token_hash, account_id FROM caracol_sessions'),
+      this.pool.query('SELECT * FROM caracol_regional_events'),
     ]);
     const worldRow = world.rows[0] as Record<string, unknown> | undefined;
     return {
@@ -454,6 +570,11 @@ export class PgCaracolStore implements CaracolStore {
       effects: effects.rows
         .map((row) => effectFromRow(row as Record<string, unknown>))
         .filter((effect): effect is CaracolEffectRecord => effect !== null),
+      sessions: sessions.rows.map((row) => ({
+        tokenHash: String((row as Record<string, unknown>).token_hash),
+        accountId: String((row as Record<string, unknown>).account_id),
+      })),
+      regionalEvents: regionalEvents.rows.map((row) => regionalEventFromRow(row as Record<string, unknown>)),
     };
   }
 
@@ -596,6 +717,60 @@ export class PgCaracolStore implements CaracolStore {
 
   async deletePushSubscription(endpoint: string): Promise<void> {
     await this.pool.query('DELETE FROM caracol_push_subscriptions WHERE endpoint = $1', [endpoint]);
+  }
+
+  async createSession(tokenHash: string, accountId: string): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO caracol_sessions (token_hash, account_id) VALUES ($1, $2) ON CONFLICT (token_hash) DO NOTHING',
+      [tokenHash, accountId],
+    );
+  }
+
+  async deleteSession(tokenHash: string): Promise<void> {
+    await this.pool.query('DELETE FROM caracol_sessions WHERE token_hash = $1', [tokenHash]);
+  }
+
+  async loadRegionalEvents(): Promise<CaracolRegionalEventRecord[]> {
+    const result = await this.pool.query('SELECT * FROM caracol_regional_events');
+    return result.rows.map((row) => regionalEventFromRow(row as Record<string, unknown>));
+  }
+
+  async saveRegionalEvents(records: CaracolRegionalEventRecord[]): Promise<void> {
+    for (const record of records) {
+      await this.pool.query(
+        `INSERT INTO caracol_regional_events (uf, active_event_id, activated_at, expires_at, last_activated_at)
+         VALUES ($1, $2,
+           CASE WHEN $3::DOUBLE PRECISION IS NULL THEN NULL ELSE TO_TIMESTAMP($3::DOUBLE PRECISION / 1000.0) END,
+           CASE WHEN $4::DOUBLE PRECISION IS NULL THEN NULL ELSE TO_TIMESTAMP($4::DOUBLE PRECISION / 1000.0) END,
+           CASE WHEN $5::DOUBLE PRECISION IS NULL THEN NULL ELSE TO_TIMESTAMP($5::DOUBLE PRECISION / 1000.0) END)
+         ON CONFLICT (uf) DO UPDATE SET active_event_id = EXCLUDED.active_event_id,
+           activated_at = EXCLUDED.activated_at, expires_at = EXCLUDED.expires_at,
+           last_activated_at = EXCLUDED.last_activated_at`,
+        [record.uf, record.activeEventId, record.activatedAt, record.expiresAt, record.lastActivatedAt],
+      );
+    }
+  }
+
+  async recordRegionalClaim(claim: CaracolRegionalClaimRecord): Promise<boolean> {
+    try {
+      await this.pool.query(
+        `INSERT INTO caracol_regional_claims (uf, activated_at, account_id, event_id, claimed_at)
+         VALUES ($1, TO_TIMESTAMP($2 / 1000.0), $3, $4, TO_TIMESTAMP($5 / 1000.0))`,
+        [claim.uf, claim.activatedAt, claim.accountId, claim.eventId, claim.claimedAt],
+      );
+      return true;
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === '23505') return false;
+      throw error;
+    }
+  }
+
+  async hasRegionalClaim(uf: string, activatedAt: number, accountId: string): Promise<boolean> {
+    const result = await this.pool.query(
+      'SELECT 1 FROM caracol_regional_claims WHERE uf = $1 AND activated_at = TO_TIMESTAMP($2 / 1000.0) AND account_id = $3',
+      [uf, activatedAt, accountId],
+    );
+    return result.rows.length > 0;
   }
 
   async close(): Promise<void> {
