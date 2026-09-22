@@ -65,7 +65,7 @@ services:
     environment:
       POSTGRES_DB: lafarmer_hml
       POSTGRES_USER: lafarmer_hml
-      POSTGRES_PASSWORD: ${LAFARMER_HML_POSTGRES_PASSWORD:-lafarmer-hml-postgres-change-me}
+      POSTGRES_PASSWORD: ${LAFARMER_HML_POSTGRES_PASSWORD:-lafarmer_hml}
     volumes:
       - type: volume
         source: lafarmer-hml-postgres
