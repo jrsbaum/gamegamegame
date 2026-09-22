@@ -13,13 +13,14 @@ todas apontando para o repositório `gamegamegame` e a branch `main` no Dokploy:
 
 Copie `dokploy/.env.example` apenas para uso local de validação. No Dokploy,
 cadastre os valores no ambiente da aplicação. Os nomes de volume
-`CARACOL_POSTGRES_VOLUME` e `LAFARMER_POSTGRES_VOLUME` são obrigatórios e
-devem ser os nomes já existentes no ambiente de produção; os Compose não têm
-fallback e não criam volumes com nomes inventados.
+`CARACOL_POSTGRES_VOLUME` deve ser o nome já existente no ambiente de
+produção. O LaFarmer mantém compatibilidade com o ambiente legado do Dokploy:
+usa `WEB_DOMAIN`, `POSTGRES_*`, `DATABASE_URL` e `SESSION_SECRET`, além de
+preservar o volume externo `lafarmer-postgres`. Nenhum compose cria volumes de
+produção automaticamente.
 
-Além das variáveis de domínio e banco, Caracol precisa das chaves VAPID e
-LaFarmer precisa de `LAFARMER_SESSION_SECRET`. Segredos não devem ser
-versionados.
+Além das variáveis de domínio e banco, Caracol precisa das chaves VAPID.
+Segredos não devem ser versionados.
 
 ## Rede e WebSocket
 
