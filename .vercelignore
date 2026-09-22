@@ -1,9 +1,0 @@
-server
-tests
-nginx
-.specs
-.claude
-.agents
-Dockerfile
-docker-compose.yml
-tsconfig.server.json
