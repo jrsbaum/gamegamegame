@@ -1,7 +1,8 @@
 # GameGameGame: infraestrutura Dokploy
 
 Esta pasta contém a topologia versionada para cinco aplicações independentes,
-todas apontando para o repositório `gamegamegame` e a branch `main` no Dokploy:
+todas apontando para o repositório `gamegamegame` no Dokploy. A produção usa
+`main`; a homologação usa `staging`:
 
 - `dokploy/lobby`: `gamegamegame.site`;
 - `dokploy/whoami`: `whoami.gamegamegame.site`;
@@ -18,6 +19,21 @@ produção. O LaFarmer mantém compatibilidade com o ambiente legado do Dokploy:
 usa `WEB_DOMAIN`, `POSTGRES_*`, `DATABASE_URL` e `SESSION_SECRET`, além de
 preservar o volume externo `lafarmer-lafarmer-vyw0ox_lafarmer-postgres`.
 Nenhum compose cria volumes de produção automaticamente.
+
+## Ambientes
+
+O projeto Dokploy `GameGameGame` deve ter dois ambientes isolados:
+
+- `production`: serviços com os domínios públicos e a branch `main`;
+- `staging`: serviços HML com a branch `staging` e volumes novos.
+
+Não duplique apenas um container dentro do mesmo ambiente. Duplique o ambiente
+inteiro ou crie os serviços equivalentes dentro de `staging`, para evitar
+colisão de routers, nomes e volumes. O ambiente HML nunca pode receber
+`CARACOL_POSTGRES_VOLUME` ou `LAFARMER_POSTGRES_VOLUME` da produção.
+
+O runbook completo, incluindo os domínios HML e a ordem segura de criação,
+está em [`dokploy/staging/README.md`](dokploy/staging/README.md).
 
 Além das variáveis de domínio e banco, Caracol precisa das chaves VAPID.
 Segredos não devem ser versionados.
@@ -45,6 +61,7 @@ docker compose --env-file infra/dokploy/.env.example -f infra/dokploy/lafarmer/d
 ```
 
 Os Compose não publicam portas no host e não acessam o Dokploy real. Antes de
-qualquer deploy, confirme no Dokploy que cada aplicação usa `main`, os nomes
+qualquer deploy, confirme no Dokploy que cada aplicação usa a branch correta,
+os nomes
 de volume correspondem ao backup/estado existente e a rede
 `dokploy-network` já existe.
