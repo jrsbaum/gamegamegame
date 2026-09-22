@@ -46,6 +46,10 @@ servem frontend, HTTP e Socket.IO no mesmo processo e domínio; por isso
 `VITE_SERVER_URL` fica vazio. LaFarmer usa o mesmo domínio para `/api`, `/ws`,
 `/healthz` e as rotas web, com o router da API tendo prioridade maior.
 
+Impostor e Caracol possuem Dockerfiles específicos (`impostor.Dockerfile` e
+`caracol.Dockerfile`) para fixar o aplicativo no próprio artefato. Isso evita
+que um serviço HML dependa de `GAME_APP` configurado manualmente no Dokploy.
+
 ## Validação local
 
 A partir da raiz do repositório, com Docker instalado:
