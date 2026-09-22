@@ -16,8 +16,8 @@ cadastre os valores no ambiente da aplicação. Os nomes de volume
 `CARACOL_POSTGRES_VOLUME` deve ser o nome já existente no ambiente de
 produção. O LaFarmer mantém compatibilidade com o ambiente legado do Dokploy:
 usa `WEB_DOMAIN`, `POSTGRES_*`, `DATABASE_URL` e `SESSION_SECRET`, além de
-preservar o volume externo `lafarmer-postgres`. Nenhum compose cria volumes de
-produção automaticamente.
+preservar o volume externo `lafarmer-lafarmer-vyw0ox_lafarmer-postgres`.
+Nenhum compose cria volumes de produção automaticamente.
 
 Além das variáveis de domínio e banco, Caracol precisa das chaves VAPID.
 Segredos não devem ser versionados.
