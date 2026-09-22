@@ -14,7 +14,7 @@ services:
       PORT: 3001
       PUBLIC_ORIGIN: https://hml-caracol.gamegamegame.site
       VITE_SERVER_URL: ""
-      CARACOL_DATABASE_URL: postgresql://caracol_hml:caracol_hml@postgres:5432/caracol_hml
+      CARACOL_DATABASE_URL: postgresql://caracol_hml:${CARACOL_HML_POSTGRES_PASSWORD:?CARACOL_HML_POSTGRES_PASSWORD is required}@postgres:5432/caracol_hml
       CARACOL_VAPID_PUBLIC_KEY: ${CARACOL_HML_VAPID_PUBLIC_KEY:-}
       CARACOL_VAPID_PRIVATE_KEY: ${CARACOL_HML_VAPID_PRIVATE_KEY:-}
       CARACOL_VAPID_SUBJECT: ${CARACOL_HML_VAPID_SUBJECT:-mailto:hml@gamegamegame.site}

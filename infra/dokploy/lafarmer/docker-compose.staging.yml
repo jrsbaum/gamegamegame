@@ -9,7 +9,7 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 4000
-      DATABASE_URL: postgresql://lafarmer_hml:lafarmer_hml@postgres:5432/lafarmer_hml
+      DATABASE_URL: postgresql://lafarmer_hml:${LAFARMER_HML_POSTGRES_PASSWORD:?LAFARMER_HML_POSTGRES_PASSWORD is required}@postgres:5432/lafarmer_hml
       SESSION_SECRET: ${LAFARMER_HML_SESSION_SECRET:-lafarmer-hml-session-change-me}
       CORS_ORIGIN: https://hml-lafarmer.gamegamegame.site
     healthcheck:
