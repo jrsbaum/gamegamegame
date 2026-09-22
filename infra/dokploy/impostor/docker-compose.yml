@@ -1,0 +1,38 @@
+name: gamegamegame-impostor
+
+services:
+  impostor:
+    build:
+      context: ../../..
+      dockerfile: infra/docker/gamegamegame.Dockerfile
+      args:
+        GAME_APP: impostor
+    environment:
+      NODE_ENV: production
+      GAME_SERVICE: impostor
+      HOST: 0.0.0.0
+      PORT: 3001
+      PUBLIC_ORIGIN: https://${IMPOSTOR_DOMAIN}
+      VITE_SERVER_URL: ""
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 4s
+      retries: 12
+      start_period: 8s
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.gamegamegame-impostor.rule: Host(`${IMPOSTOR_DOMAIN}`)
+      traefik.http.routers.gamegamegame-impostor.entrypoints: websecure
+      traefik.http.routers.gamegamegame-impostor.tls: "true"
+      traefik.http.routers.gamegamegame-impostor.tls.certresolver: letsencrypt
+      traefik.http.services.gamegamegame-impostor.loadbalancer.server.port: "3001"
+
+networks:
+  proxy:
+    external: true
+    name: dokploy-network
