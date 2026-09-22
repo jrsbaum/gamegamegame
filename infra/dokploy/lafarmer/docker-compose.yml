@@ -85,7 +85,7 @@ services:
 volumes:
   lafarmer-postgres:
     external: true
-    name: ${LAFARMER_POSTGRES_VOLUME:-lafarmer-postgres}
+    name: ${LAFARMER_POSTGRES_VOLUME:-lafarmer-lafarmer-vyw0ox_lafarmer-postgres}
 
 networks:
   private:
