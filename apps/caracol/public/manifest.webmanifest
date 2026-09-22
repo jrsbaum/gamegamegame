@@ -1,0 +1,19 @@
+{
+  "name": "Jogos · Caracol",
+  "short_name": "Caracol",
+  "description": "Um mapa global. Uma perseguição que não para.",
+  "start_url": "/?game=caracol",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#151525",
+  "theme_color": "#151525",
+  "icons": [
+    {
+      "src": "/icons/caracol.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
