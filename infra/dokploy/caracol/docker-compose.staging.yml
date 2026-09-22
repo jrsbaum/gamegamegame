@@ -34,14 +34,9 @@ services:
     labels:
       traefik.enable: "true"
       traefik.docker.network: dokploy-network
-      traefik.http.routers.gamegamegame-caracol-hml.rule: Host(`hml-caracol.gamegamegame.site`)
-      traefik.http.routers.gamegamegame-caracol-hml.entrypoints: websecure
-      traefik.http.routers.gamegamegame-caracol-hml.tls: "true"
-      traefik.http.routers.gamegamegame-caracol-hml.tls.certresolver: letsencrypt
-      traefik.http.services.gamegamegame-caracol-hml.loadbalancer.server.port: "3001"
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18
     environment:
       POSTGRES_DB: caracol_hml
       POSTGRES_USER: caracol_hml
@@ -49,7 +44,7 @@ services:
     volumes:
       - type: volume
         source: caracol-hml-postgres
-        target: /var/lib/postgresql/data
+        target: /var/lib/postgresql/18/docker
         volume:
           nocopy: true
     healthcheck:
