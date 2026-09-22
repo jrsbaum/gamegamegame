@@ -36,7 +36,7 @@ services:
       traefik.docker.network: dokploy-network
 
   postgres:
-    image: postgres:18
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: caracol_hml
       POSTGRES_USER: caracol_hml
@@ -44,7 +44,7 @@ services:
     volumes:
       - type: volume
         source: caracol-hml-postgres
-        target: /var/lib/postgresql/18/docker
+        target: /var/lib/postgresql/data
         volume:
           nocopy: true
     healthcheck:
