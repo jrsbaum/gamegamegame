@@ -1,0 +1,94 @@
+name: gamegamegame-lafarmer-hml
+
+services:
+  server:
+    build:
+      context: ../../..
+      dockerfile: infra/docker/lafarmer-server.Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4000
+      DATABASE_URL: postgresql://lafarmer_hml:lafarmer_hml@postgres:5432/lafarmer_hml
+      SESSION_SECRET: ${LAFARMER_HML_SESSION_SECRET:-lafarmer-hml-session-change-me}
+      CORS_ORIGIN: https://hml-lafarmer.gamegamegame.site
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - private
+      - proxy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.gamegamegame-lafarmer-hml-api.rule: Host(`hml-lafarmer.gamegamegame.site`) && (PathPrefix(`/api`) || PathPrefix(`/ws`) || Path(`/healthz`))
+      traefik.http.routers.gamegamegame-lafarmer-hml-api.entrypoints: websecure
+      traefik.http.routers.gamegamegame-lafarmer-hml-api.tls: "true"
+      traefik.http.routers.gamegamegame-lafarmer-hml-api.tls.certresolver: letsencrypt
+      traefik.http.routers.gamegamegame-lafarmer-hml-api.priority: "100"
+      traefik.http.services.gamegamegame-lafarmer-hml-api.loadbalancer.server.port: "4000"
+
+  web:
+    build:
+      context: ../../..
+      dockerfile: infra/docker/lafarmer-web.Dockerfile
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - proxy
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.gamegamegame-lafarmer-hml-web.rule: Host(`hml-lafarmer.gamegamegame.site`)
+      traefik.http.routers.gamegamegame-lafarmer-hml-web.entrypoints: websecure
+      traefik.http.routers.gamegamegame-lafarmer-hml-web.tls: "true"
+      traefik.http.routers.gamegamegame-lafarmer-hml-web.tls.certresolver: letsencrypt
+      traefik.http.services.gamegamegame-lafarmer-hml-web.loadbalancer.server.port: "80"
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lafarmer_hml
+      POSTGRES_USER: lafarmer_hml
+      POSTGRES_PASSWORD: ${LAFARMER_HML_POSTGRES_PASSWORD:?LAFARMER_HML_POSTGRES_PASSWORD is required}
+    volumes:
+      - type: volume
+        source: lafarmer-hml-postgres
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lafarmer_hml -d lafarmer_hml"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - private
+
+volumes:
+  lafarmer-hml-postgres:
+    external: true
+    name: gamegamegame-staging-lafarmer-postgres
+
+networks:
+  private:
+    internal: true
+  proxy:
+    external: true
+    name: dokploy-network
