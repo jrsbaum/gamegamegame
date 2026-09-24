@@ -149,13 +149,13 @@ T7
 **Tools**: MCP NONE; Skill `tlc-spec-driven`
 
 **Done when**:
-- [ ] Owner can enter closed home; visitors can only enter open home at its outdoor door.
-- [ ] Exit restores the prior exterior; reconnect starts outside the player's own home.
-- [ ] Actions validate membership, position, object type, bounds and collisions.
-- [ ] Poses do not affect wallet or production; one radio tune may play per home at a time.
-- [ ] Unit tests cover service acceptance criteria and edge cases.
-- [ ] Gate check passes: `npm test --workspace @lafarmer/server`
-- [ ] Test count recorded; existing tests retained.
+- [x] Owner can enter closed home; visitors can only enter open home at its outdoor door.
+- [x] Exit restores the prior exterior; reconnect starts outside the player's own home.
+- [x] Actions validate membership, position, object type, bounds and collisions.
+- [x] Poses do not affect wallet or production; one radio tune may play per home at a time.
+- [x] Unit tests cover service acceptance criteria and edge cases.
+- [x] Gate check passes: `npm test --workspace @lafarmer/server`
+- [x] Test count: 6 new service tests pass; 24 server tests pass total.
 
 **Tests**: unit — all HomeService branches and listed edge cases
 **Gate**: quick
