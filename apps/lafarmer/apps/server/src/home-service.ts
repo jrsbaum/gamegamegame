@@ -66,8 +66,14 @@ export class HomeService {
   homeOwnerFor(playerId: string): string | undefined { return this.sessions.get(playerId)?.ownerId; }
 
   async ensurePlayerHome(playerId: string): Promise<HomeRecord | undefined> {
-    const player = await this.requirePlayer(playerId);
-    return player.homeRegionId ? this.ensureOwnerHome(player) : undefined;
+    let player = await this.requirePlayer(playerId);
+    const regionId = player.homeRegionId ?? player.plot?.regionId;
+    if (!regionId) return undefined;
+    if (!player.homeRegionId) {
+      player = { ...player, homeRegionId: regionId };
+      await this.players.update(player);
+    }
+    return this.ensureOwnerHome(player);
   }
 
   async homeForRegion(regionId: string): Promise<HomeView | undefined> {
