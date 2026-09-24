@@ -200,7 +200,7 @@ export class WorldScene extends Phaser.Scene {
         if (occupant) { this.homeOccupants.set(occupant.playerId, occupant); this.renderHomeOccupants(); }
       }
       if (message.type === 'error' && typeof message.code === 'string') {
-        const errors: Record<string, string> = { home_closed: 'A casa está fechada para visitas.', not_at_home_door: 'Chegue mais perto da porta.', invalid_home_furniture: 'Esse móvel não cabe nesse lugar.' };
+        const errors: Record<string, string> = { home_closed: 'A casa está fechada para visitas.', not_at_home_door: 'Chegue mais perto da porta.', not_near_home_object: 'Chegue mais perto do móvel e tente de novo.', invalid_home_furniture: 'Esse móvel não cabe nesse lugar.' };
         if (message.code === 'invalid_home_furniture') this.drawHomeFurniture(this.homeView?.furniture ?? []);
         if (errors[message.code]) this.worldData.onConnectionPrompt?.(errors[message.code]);
       }
