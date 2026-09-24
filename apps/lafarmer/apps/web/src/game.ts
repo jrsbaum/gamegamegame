@@ -197,7 +197,15 @@ export class WorldScene extends Phaser.Scene {
       if (message.type === 'home.exited') this.exitHomeView(message);
       if (message.type === 'home.move_ack') {
         const occupant = message.occupant as HomeOccupant | undefined;
-        if (occupant) { this.homeOccupants.set(occupant.playerId, occupant); this.renderHomeOccupants(); }
+        if (typeof message.actionId === 'string') this.pendingMoves.delete(message.actionId);
+        if (occupant) {
+          this.homeOccupants.set(occupant.playerId, occupant);
+          if (occupant.playerId === this.localPlayerId && this.pendingMoves.size === 0) {
+            const position = this.homeGridToWorld(occupant.position.x, occupant.position.y);
+            if (Phaser.Math.Distance.Between(this.player.x, this.player.y, position.x, position.y) > RECONCILE_DISTANCE) this.player.setPosition(position.x, position.y);
+          }
+          this.renderHomeOccupants();
+        }
       }
       if (message.type === 'error' && typeof message.code === 'string') {
         const errors: Record<string, string> = { home_closed: 'A casa está fechada para visitas.', not_at_home_door: 'Chegue mais perto da porta.', not_near_home_object: 'Chegue mais perto do móvel e tente de novo.', invalid_home_furniture: 'Esse móvel não cabe nesse lugar.' };

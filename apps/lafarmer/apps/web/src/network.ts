@@ -142,7 +142,7 @@ export class RealtimeClient {
       socket.addEventListener('message', (event) => {
         try {
           const message = JSON.parse(String(event.data)) as Record<string, unknown>;
-          if (message.type === 'move_ack' && typeof message.actionId === 'string') {
+          if ((message.type === 'move_ack' || message.type === 'home.move_ack') && typeof message.actionId === 'string') {
             const sentAt = this.moveSentAt.get(message.actionId);
             if (sentAt) { this.latencyMs = Date.now() - sentAt; this.moveSentAt.delete(message.actionId); }
           }
