@@ -1,4 +1,5 @@
 import type { BehaviorState, CareState, PlayerAppearance, Quality } from "@lafarmer/content";
+import type { HomeFurniture } from "@lafarmer/content";
 
 export type Account = {
   id: string;
@@ -55,6 +56,14 @@ export type PlayerState = {
     x: number;
     y: number;
   };
+};
+
+export type HomeRecord = {
+  ownerId: string;
+  regionId: string;
+  doorOpen: boolean;
+  furniture: HomeFurniture[];
+  updatedAt: number;
 };
 
 export type FarmStructureType = "house" | "field" | "orchard" | "animal_pen" | "dinosaur_enclosure";

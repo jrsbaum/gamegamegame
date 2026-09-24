@@ -129,12 +129,12 @@ T7
 **Tools**: MCP NONE; Skill `tlc-spec-driven`
 
 **Done when**:
-- [ ] One persisted home per owner stores region, door and furniture.
-- [ ] Repeated/concurrent ensure returns existing state without resetting it.
-- [ ] In-memory and PostgreSQL adapters return equivalent values.
-- [ ] Repository mock tests and server build pass.
-- [ ] Gate check passes: `npm test --workspace @lafarmer/server`
-- [ ] Test count recorded; existing tests retained.
+- [x] One persisted home per owner stores region, door and furniture.
+- [x] Repeated/concurrent ensure returns existing state without resetting it.
+- [x] In-memory and PostgreSQL adapters return equivalent values.
+- [x] Repository mock tests pass; server TypeScript build passes.
+- [x] Gate check passes: `npm test --workspace @lafarmer/server`
+- [x] Test count: 3 new persistence tests pass; 18 server tests pass total.
 
 **Tests**: unit/mock — ensure, mapping, update and conflict
 **Gate**: quick
