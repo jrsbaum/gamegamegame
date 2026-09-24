@@ -550,6 +550,8 @@ export class WorldScene extends Phaser.Scene {
     WORLD_OBSTACLES.forEach((obstacle) => {
       if (obstacle.kind === 'tree') this.drawTree(obstacle);
       else if (obstacle.kind === 'rock') this.drawRock(obstacle);
+      else if (obstacle.kind === 'gate') this.drawGate(obstacle);
+      else if (obstacle.kind === 'bridge') this.drawBridge(obstacle);
       else {
         const building = this.drawBuilding(obstacle);
         if (obstacle.kind === 'house') {
@@ -567,7 +569,88 @@ export class WorldScene extends Phaser.Scene {
   private obstacleCenter(obstacle: WorldObstacle): { x: number; y: number } { return this.gridToWorld(obstacle.x + (obstacle.width - 1) / 2, obstacle.y + (obstacle.height - 1) / 2); }
   private drawTree(obstacle: WorldObstacle): void { const { x, y } = this.obstacleCenter(obstacle); const graphics = this.add.graphics().setDepth(40); graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + 24, 56, 18).fillStyle(color('#76503b'), 1).fillRoundedRect(x - 7, y + 4, 14, 28, 5).fillStyle(color('#4d874e'), 1).fillEllipse(x - 15, y, 50, 52).fillStyle(color('#72a95d'), 1).fillEllipse(x + 14, y - 4, 52, 54).fillStyle(color('#87ba68'), 1).fillEllipse(x, y - 22, 56, 52).fillStyle(color(palette.amber), 1).fillCircle(x - 14, y - 10, 4).fillCircle(x + 12, y - 20, 4); }
   private drawRock(obstacle: WorldObstacle): void { const { x, y } = this.obstacleCenter(obstacle); const graphics = this.add.graphics().setDepth(40); graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + 15, 48, 14).fillStyle(color('#738487'), 1).beginPath().moveTo(x - 24, y + 12).lineTo(x - 15, y - 12).lineTo(x + 2, y - 22).lineTo(x + 24, y - 8).lineTo(x + 18, y + 15).closePath().fillPath().lineStyle(3, color(palette.forest), 0.2).strokePath(); }
-  private drawBuilding(obstacle: WorldObstacle): Phaser.GameObjects.GameObject[] { const { x, y } = this.obstacleCenter(obstacle); const width = obstacle.width * WORLD_TILE_SIZE - 10; const height = obstacle.height * WORLD_TILE_SIZE - 12; const graphics = this.add.graphics().setDepth(35); const isMarket = obstacle.kind === 'market'; const body = isMarket ? palette.amber : palette.coral; const roof = isMarket ? '#d86b5d' : '#a7473f'; graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + height / 2 + 12, width + 24, 22).fillStyle(color(body), 1).fillRoundedRect(x - width / 2, y - height / 2 + 12, width, height - 12, 8).fillStyle(color(roof), 1).beginPath().moveTo(x - width / 2 - 8, y - height / 2 + 16).lineTo(x, y - height / 2 - 18).lineTo(x + width / 2 + 8, y - height / 2 + 16).closePath().fillPath().fillStyle(color('#6c4938'), 1).fillRect(x - 15, y + 4, 30, height / 2 - 4); const label = this.label(isMarket ? 'mercadinho' : obstacle.kind === 'barn' ? 'celeiro' : 'casa', x, y - height / 2 - 31, 10, palette.forest); return [graphics, label]; }
+  private drawGate(obstacle: WorldObstacle): void {
+    const { x, y } = this.obstacleCenter(obstacle);
+    const graphics = this.add.graphics().setDepth(35);
+    graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + 25, obstacle.width * WORLD_TILE_SIZE, 18);
+    graphics.fillStyle(color('#76523e'), 1)
+      .fillRoundedRect(x - 43, y - 29, 12, 66, 4)
+      .fillRoundedRect(x + 31, y - 29, 12, 66, 4)
+      .fillRoundedRect(x - 32, y - 15, 64, 11, 4)
+      .fillRoundedRect(x - 32, y + 10, 64, 11, 4);
+    graphics.lineStyle(5, color('#f2b84b'), 0.95).beginPath()
+      .moveTo(x - 28, y - 11).lineTo(x + 28, y + 7)
+      .moveTo(x - 28, y + 7).lineTo(x + 28, y - 11).strokePath();
+    this.label('porteira', x, y - 52, 10, palette.forest);
+  }
+
+  private drawBridge(obstacle: WorldObstacle): void {
+    const { x, y } = this.obstacleCenter(obstacle);
+    const width = obstacle.width * WORLD_TILE_SIZE - 8;
+    const graphics = this.add.graphics().setDepth(35);
+    graphics.fillStyle(color(palette.forest), 0.2).fillRoundedRect(x - width / 2 - 8, y - 37, width + 16, 74, 8);
+    graphics.fillStyle(color('#9b5b3d'), 1).fillRoundedRect(x - width / 2, y - 31, width, 62, 6);
+    graphics.lineStyle(4, color('#6c4938'), 1).strokeRect(x - width / 2, y - 31, width, 62);
+    for (let plank = -2; plank <= 2; plank += 1) {
+      const plankY = y + plank * 11;
+      graphics.lineStyle(2, color('#d6a06a'), 0.9).beginPath().moveTo(x - width / 2 + 5, plankY).lineTo(x + width / 2 - 5, plankY).strokePath();
+    }
+    graphics.fillStyle(color('#76523e'), 1).fillRoundedRect(x - width / 2 - 4, y - 43, width + 8, 9, 4).fillRoundedRect(x - width / 2 - 4, y + 34, width + 8, 9, 4);
+    this.label('ponte', x, y - 62, 10, palette.forest);
+  }
+
+  private drawBuilding(obstacle: WorldObstacle): Phaser.GameObjects.GameObject[] {
+    const { x, y } = this.obstacleCenter(obstacle);
+    const width = obstacle.width * WORLD_TILE_SIZE - 10;
+    const height = obstacle.height * WORLD_TILE_SIZE - 12;
+    const left = x - width / 2;
+    const right = x + width / 2;
+    const top = y - height / 2;
+    const bottom = y + height / 2;
+    const graphics = this.add.graphics().setDepth(35);
+    graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, bottom + 12, width + 24, 22);
+
+    if (obstacle.kind === 'house') {
+      graphics.fillStyle(color(palette.coral), 1).fillRoundedRect(left, top + 12, width, height - 12, 8);
+      graphics.fillStyle(color('#a7473f'), 1).beginPath()
+        .moveTo(left - 8, top + 16).lineTo(x, top - 18).lineTo(right + 8, top + 16)
+        .closePath().fillPath();
+      graphics.fillStyle(color(palette.cream), 1).fillRoundedRect(left + 24, top + 34, 30, 28, 4).fillRoundedRect(right - 54, top + 34, 30, 28, 4);
+      graphics.fillStyle(color('#9bd8ce'), 1).fillRect(left + 29, top + 39, 20, 18).fillRect(right - 49, top + 39, 20, 18);
+      graphics.fillStyle(color('#76523e'), 1).fillRoundedRect(x - 16, bottom - 58, 32, 58, 5);
+      graphics.fillStyle(color(palette.amber), 1).fillCircle(x + 9, bottom - 29, 2.5);
+    } else if (obstacle.kind === 'barn') {
+      graphics.fillStyle(color('#bb5949'), 1).fillRoundedRect(left, top + 20, width, height - 20, 5);
+      graphics.fillStyle(color('#8f4036'), 1).beginPath()
+        .moveTo(left - 10, top + 24).lineTo(left + width * 0.22, top - 15)
+        .lineTo(right - width * 0.22, top - 15).lineTo(right + 10, top + 24)
+        .closePath().fillPath();
+      graphics.fillStyle(color('#f2b84b'), 1).fillRoundedRect(x - 48, bottom - 79, 96, 63, 6);
+      graphics.lineStyle(4, color('#76523e'), 1).strokeRect(x - 48, bottom - 79, 96, 63);
+      graphics.lineStyle(4, color('#76523e'), 1).beginPath()
+        .moveTo(x, bottom - 77).lineTo(x, bottom - 18)
+        .moveTo(x - 43, bottom - 73).lineTo(x - 5, bottom - 39)
+        .moveTo(x + 43, bottom - 73).lineTo(x + 5, bottom - 39)
+        .moveTo(x - 43, bottom - 23).lineTo(x - 5, bottom - 56)
+        .moveTo(x + 43, bottom - 23).lineTo(x + 5, bottom - 56).strokePath();
+      graphics.fillStyle(color('#f8f6ed'), 1).fillRoundedRect(x - 20, top + 31, 40, 24, 4);
+      graphics.fillStyle(color('#d86b5d'), 1).fillRect(x - 13, top + 36, 26, 14);
+    } else {
+      graphics.fillStyle(color(palette.cream), 1).fillRoundedRect(left, top + 24, width, height - 24, 6);
+      graphics.fillStyle(color('#8f4036'), 1).fillRoundedRect(left - 7, top + 9, width + 14, 24, 5);
+      const stripes = Math.max(3, Math.floor(width / 46));
+      const stripeWidth = (width + 14) / stripes;
+      for (let stripe = 0; stripe < stripes; stripe += 1) {
+        if (stripe % 2 === 0) graphics.fillStyle(color(palette.coral), 1).fillRect(left - 7 + stripe * stripeWidth, top + 10, stripeWidth / 2, 23);
+      }
+      graphics.fillStyle(color('#76523e'), 1).fillRoundedRect(x - width * 0.34, bottom - 42, width * 0.68, 16, 4);
+      graphics.fillStyle(color(palette.amber), 1).fillCircle(x - 30, bottom - 55, 8).fillCircle(x, bottom - 55, 8);
+      graphics.fillStyle(color('#72a95d'), 1).fillCircle(x + 30, bottom - 55, 8);
+    }
+
+    const label = this.label(obstacle.kind === 'market' ? 'mercadinho' : obstacle.kind === 'barn' ? 'celeiro' : 'casa', x, top - 31, 10, palette.forest);
+    return [graphics, label];
+  }
 
   private createPlayer(profile: PlayerProfile): void { this.player = this.add.graphics().setDepth(100); this.drawPlayer(this.player, profile); this.nameTag = this.label(profile.name, 0, 0, 12, palette.cream).setBackgroundColor(palette.forest); this.updateNameTag(); }
   private updateNameTag(): void {
