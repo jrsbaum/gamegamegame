@@ -120,7 +120,7 @@ export type WalletEntry = {
   createdAt: number;
 };
 
-export type Direction = "up" | "down" | "left" | "right";
+export type Direction = "up" | "up-right" | "right" | "down-right" | "down" | "down-left" | "left" | "up-left";
 
 export type MoveCommand = {
   actionId: string;
