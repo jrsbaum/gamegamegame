@@ -1,13 +1,24 @@
 import Phaser from 'phaser';
 import { getWorldRegion, isInsideFarmBoundary, isWorldTileWalkable, isWorldWaterTile, outfits, palette, WORLD_CONNECTIONS, WORLD_HEIGHT_TILES, WORLD_OBSTACLES, WORLD_TILE_SIZE, WORLD_WIDTH_TILES, type WorldObstacle } from '@lafarmer/content-client';
-import type { PlayerProfile, RealtimeClient, WorldPresence } from './network';
+import type { Direction, PlayerProfile, RealtimeClient, WorldPresence } from './network';
 
 const WORLD = { width: WORLD_WIDTH_TILES * WORLD_TILE_SIZE, height: WORLD_HEIGHT_TILES * WORLD_TILE_SIZE };
-const MOVE_SEND_INTERVAL = 250;
+const MOVE_SEND_INTERVAL = 220;
 const MOVE_SPEED = WORLD_TILE_SIZE * 1_000 / MOVE_SEND_INTERVAL;
 const PLAYER_RADIUS = 13;
 const RECONCILE_DISTANCE = 44;
 const color = (hex: string): number => Number(`0x${hex.slice(1)}`);
+type MovementVector = { x: number; y: number };
+const DIRECTIONS: readonly Direction[] = ['right', 'down-right', 'down', 'down-left', 'left', 'up-left', 'up', 'up-right'];
+const DIRECTION_VECTORS: Record<Direction, MovementVector> = {
+  up: { x: 0, y: -1 }, 'up-right': { x: Math.SQRT1_2, y: -Math.SQRT1_2 }, right: { x: 1, y: 0 },
+  'down-right': { x: Math.SQRT1_2, y: Math.SQRT1_2 }, down: { x: 0, y: 1 }, 'down-left': { x: -Math.SQRT1_2, y: Math.SQRT1_2 },
+  left: { x: -1, y: 0 }, 'up-left': { x: -Math.SQRT1_2, y: -Math.SQRT1_2 },
+};
+function directionForVector(x: number, y: number): Direction {
+  const angle = (Math.atan2(y, x) + Math.PI * 2) % (Math.PI * 2);
+  return DIRECTIONS[Math.round(angle / (Math.PI / 4)) % DIRECTIONS.length];
+}
 
 interface WorldData { profile: PlayerProfile; realtime: RealtimeClient; onCoins: (coins: number) => void; onInventory?: (inventory: Record<string, number>) => void; onProduction?: (ready: number, total: number) => void; onSnapshot?: (snapshot: Record<string, unknown>) => void; onPresence?: (presence: WorldPresence[]) => void; onMarket?: () => void; onConnectionPrompt?: (message: string) => void; }
 type RemoteView = { body: Phaser.GameObjects.Graphics; tag: Phaser.GameObjects.Text };
@@ -19,14 +30,15 @@ export class WorldScene extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keys!: Record<string, Phaser.Input.Keyboard.Key>;
   private worldData!: WorldData;
-  private touchDirection: 'up' | 'down' | 'left' | 'right' | undefined;
+  private touchInput: MovementVector = { x: 0, y: 0 };
+  private touchPointerId: number | undefined;
   private currentRegionId = '';
   private knownPresence: WorldPresence[] = [];
   private lastConnectionPrompt = '';
   private lastRegionEntryAt = 0;
   private lastMoveSent = 0;
   private lastLocalPosition = { x: 0, y: 0 };
-  private readonly pendingMoves = new Map<string, 'up' | 'down' | 'left' | 'right'>();
+  private readonly pendingMoves = new Map<string, Direction>();
   private readonly remotePlayers = new Map<string, RemoteView>();
   private readonly farmItems = new Map<string, FarmView>();
   private readonly structures = new Map<string, Phaser.GameObjects.Graphics>();
@@ -44,16 +56,39 @@ export class WorldScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.setResponsiveZoom();
     window.addEventListener('resize', () => this.setResponsiveZoom());
-    document.querySelectorAll<HTMLButtonElement>('[data-direction]').forEach((button) => {
-      const direction = button.dataset.direction as 'up' | 'down' | 'left' | 'right';
-      const start = (event: Event) => { event.preventDefault(); this.touchDirection = direction; };
-      const stop = () => { if (this.touchDirection === direction) this.touchDirection = undefined; };
-      button.addEventListener('pointerdown', start, { passive: false });
-      button.addEventListener('pointerup', stop);
-      button.addEventListener('pointercancel', stop);
-      button.addEventListener('pointerleave', stop);
-    });
+    this.bindTouchJoystick();
     this.bindRealtime(); this.applyServerPosition(5, 5); this.updateConnectionPrompt();
+  }
+
+  private bindTouchJoystick(): void {
+    const joystick = document.querySelector<HTMLElement>('[data-touch-joystick]');
+    const knob = joystick?.querySelector<HTMLElement>('[data-touch-joystick-knob]');
+    if (!joystick || !knob) return;
+    const reset = () => { this.touchInput = { x: 0, y: 0 }; knob.style.transform = 'translate(0px, 0px)'; };
+    const update = (event: PointerEvent) => {
+      const bounds = joystick.getBoundingClientRect();
+      const maxTravel = Math.max(1, (Math.min(bounds.width, bounds.height) - knob.offsetWidth) / 2);
+      const dx = event.clientX - (bounds.left + bounds.width / 2);
+      const dy = event.clientY - (bounds.top + bounds.height / 2);
+      const distance = Math.hypot(dx, dy);
+      const travel = Math.min(distance, maxTravel);
+      const scale = distance === 0 ? 0 : travel / distance;
+      knob.style.transform = `translate(${dx * scale}px, ${dy * scale}px)`;
+      const strength = travel / maxTravel;
+      this.touchInput = strength < 0.18 ? { x: 0, y: 0 } : { x: dx / distance * strength, y: dy / distance * strength };
+    };
+    joystick.addEventListener('pointerdown', (event) => {
+      if (this.touchPointerId !== undefined) return;
+      event.preventDefault(); this.touchPointerId = event.pointerId; joystick.setPointerCapture(event.pointerId); update(event);
+    });
+    joystick.addEventListener('pointermove', (event) => { if (event.pointerId === this.touchPointerId) update(event); });
+    const stop = (event: PointerEvent) => {
+      if (event.pointerId !== this.touchPointerId) return;
+      this.touchPointerId = undefined; reset();
+    };
+    joystick.addEventListener('pointerup', stop);
+    joystick.addEventListener('pointercancel', stop);
+    joystick.addEventListener('lostpointercapture', stop);
   }
 
   private applySnapshot(snapshot: Record<string, unknown>): void {
@@ -82,22 +117,24 @@ export class WorldScene extends Phaser.Scene {
     const right = this.cursors.right.isDown || this.keys.D?.isDown;
     const up = this.cursors.up.isDown || this.keys.W?.isDown;
     const down = this.cursors.down.isDown || this.keys.S?.isDown;
-    const direction = this.touchDirection ?? (right ? 'right' : left ? 'left' : down ? 'down' : up ? 'up' : undefined);
-    if (direction) this.moveDirection(direction, time, delta);
+    const keyboardInput = { x: (right ? 1 : 0) - (left ? 1 : 0), y: (down ? 1 : 0) - (up ? 1 : 0) };
+    const input = Math.hypot(this.touchInput.x, this.touchInput.y) > 0 ? this.touchInput : keyboardInput;
+    const strength = Math.min(1, Math.hypot(input.x, input.y));
+    if (strength > 0) this.moveDirection(directionForVector(input.x, input.y), strength, time, delta);
     if (Phaser.Input.Keyboard.JustDown(this.keys.E)) this.interact();
     this.updateConnectionPrompt();
   }
 
-  private moveDirection(direction: 'up' | 'down' | 'left' | 'right', time: number, delta: number): void {
+  private moveDirection(direction: Direction, strength: number, time: number, delta: number): void {
     const sprint = Boolean(this.keys.SPACE?.isDown);
-    const distance = MOVE_SPEED * (sprint ? 2 : 1) * Math.min(delta, 100) / 1_000;
+    const distance = MOVE_SPEED * (sprint ? 2 : 1) * strength * Math.min(delta, 100) / 1_000;
+    const vector = DIRECTION_VECTORS[direction];
     const next = { x: this.player.x, y: this.player.y };
-    if (direction === 'right') next.x += distance;
-    if (direction === 'left') next.x -= distance;
-    if (direction === 'down') next.y += distance;
-    if (direction === 'up') next.y -= distance;
+    next.x += vector.x * distance;
+    next.y += vector.y * distance;
     if (this.canOccupy(next.x, next.y)) { this.player.setPosition(next.x, next.y); this.updateNameTag(); }
-    if (time - this.lastMoveSent >= MOVE_SEND_INTERVAL && (this.player.x !== this.lastLocalPosition.x || this.player.y !== this.lastLocalPosition.y)) {
+    const sendInterval = MOVE_SEND_INTERVAL * (vector.x !== 0 && vector.y !== 0 ? Math.SQRT2 : 1) / strength;
+    if (time - this.lastMoveSent >= sendInterval && (this.player.x !== this.lastLocalPosition.x || this.player.y !== this.lastLocalPosition.y)) {
       this.lastMoveSent = time; this.lastLocalPosition = { x: this.player.x, y: this.player.y };
       const actionId = this.worldData.realtime.move(direction, sprint);
       if (actionId) this.pendingMoves.set(actionId, direction);

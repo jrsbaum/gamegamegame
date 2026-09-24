@@ -1,3 +1,5 @@
+export type Direction = 'up' | 'up-right' | 'right' | 'down-right' | 'down' | 'down-left' | 'left' | 'up-left';
+
 export interface PlayerProfile {
   nick: string;
   name: string;
@@ -157,7 +159,7 @@ export class RealtimeClient {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify({ type, payload })); return true;
   }
-  move(direction: 'up' | 'down' | 'left' | 'right', sprint = false): string | false {
+  move(direction: Direction, sprint = false): string | false {
     const actionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     if (!this.send('move', { actionId, direction, sprint })) return false;
     this.moveSentAt.set(actionId, Date.now());
