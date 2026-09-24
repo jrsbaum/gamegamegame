@@ -193,11 +193,11 @@ T7
 **Tools**: MCP NONE; Skills `frontend-design`, `tlc-spec-driven`
 
 **Done when**:
-- [ ] 2D house shows sala/cozinha, escritório, quarto and banheiro in current game style.
-- [ ] Owner drag persists; visitors cannot edit; same-house occupants see the change.
-- [ ] E, pointer/touch and prompts support entry, exit and station interactions.
-- [ ] Walls/furniture block movement; outdoor scene restores after exit.
-- [ ] Gate check passes: `npm run build --workspace @lafarmer/web`
+- [x] 2D house shows sala/cozinha, escritório, quarto and banheiro in current game style.
+- [x] Owner drag persists; visitors cannot edit; same-house occupants see the change.
+- [x] E, pointer/touch and prompts support entry, exit and station interactions.
+- [x] Walls/furniture block movement; outdoor scene restores after exit.
+- [x] Gate check passes: `npm run build --workspace @lafarmer/web`
 - [ ] Browser smoke covers owner, visitor, editing and door transitions.
 
 **Tests**: build + browser smoke
@@ -213,11 +213,11 @@ T7
 **Tools**: MCP NONE; Skill `tlc-spec-driven`
 
 **Done when**:
-- [ ] Click/E/touch requests playback for that house.
-- [ ] Each current occupant plays the tune once; outside clients stay silent.
-- [ ] Clicks during playback do not overlap music.
-- [ ] Blocked browser audio does not break controls/rendering.
-- [ ] Gate check passes: `npm run build --workspace @lafarmer/web`
+- [x] Click/E/touch requests playback for that house.
+- [x] Each current occupant plays the tune once; outside clients stay silent.
+- [x] Clicks during playback do not overlap music.
+- [x] Blocked browser audio does not break controls/rendering.
+- [x] Gate check passes: `npm run build --workspace @lafarmer/web`
 - [ ] Browser smoke covers playback and blocked-audio fallback.
 
 **Tests**: build + browser smoke
