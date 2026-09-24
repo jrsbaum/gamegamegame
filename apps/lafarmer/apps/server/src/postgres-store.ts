@@ -1,6 +1,6 @@
 import { Pool, type QueryResultRow } from "pg";
-import type { Account, FarmItem, FarmStructure, LandPlot, MarketListing, PlayerState, Session, Specialization, WalletEntry } from "./domain.js";
-import type { AccountRepository, FarmRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, StructureRepository, WalletRepository } from "./repositories.js";
+import type { Account, FarmItem, FarmStructure, HomeRecord, LandPlot, MarketListing, PlayerState, Session, Specialization, WalletEntry } from "./domain.js";
+import type { AccountRepository, FarmRepository, HomeRepository, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, StructureRepository, WalletRepository } from "./repositories.js";
 
 export const POSTGRES_SCHEMA = `
 CREATE TABLE IF NOT EXISTS accounts (
@@ -88,6 +88,14 @@ CREATE TABLE IF NOT EXISTS farm_structures (
   state TEXT NOT NULL DEFAULT 'built',
   position_x DOUBLE PRECISION NOT NULL,
   position_y DOUBLE PRECISION NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS homes (
+  owner_id UUID PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+  region_id TEXT NOT NULL UNIQUE,
+  door_open BOOLEAN NOT NULL DEFAULT TRUE,
+  furniture JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 ALTER TABLE farm_items ADD COLUMN IF NOT EXISTS last_processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
@@ -291,6 +299,38 @@ class PostgresStructures implements StructureRepository {
   async update(structure: FarmStructure): Promise<void> { await this.pool.query("UPDATE farm_structures SET footprint = $2, capacity = $3, cost = $4, state = $5, position_x = $6, position_y = $7 WHERE id = $1", [structure.id, JSON.stringify(structure.footprint), structure.capacity, structure.cost, structure.state, structure.position.x, structure.position.y]); }
 }
 
+class PostgresHomes implements HomeRepository {
+  constructor(private readonly pool: Pool) {}
+  async findByOwnerId(ownerId: string): Promise<HomeRecord | undefined> {
+    const result = await this.pool.query<HomeRow>(homeSelect + " WHERE owner_id = $1", [ownerId]);
+    return result.rows[0] ? mapHome(result.rows[0]) : undefined;
+  }
+  async findByRegionId(regionId: string): Promise<HomeRecord | undefined> {
+    const result = await this.pool.query<HomeRow>(homeSelect + " WHERE region_id = $1", [regionId]);
+    return result.rows[0] ? mapHome(result.rows[0]) : undefined;
+  }
+  async ensure(home: HomeRecord): Promise<HomeRecord> {
+    const result = await this.pool.query<HomeRow>(
+      `INSERT INTO homes (owner_id, region_id, door_open, furniture, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, to_timestamp($5 / 1000.0))
+       ON CONFLICT (owner_id) DO UPDATE SET owner_id = EXCLUDED.owner_id
+       RETURNING owner_id, region_id, door_open, furniture, updated_at`,
+      [home.ownerId, home.regionId, home.doorOpen, JSON.stringify(home.furniture), home.updatedAt]
+    );
+    if (!result.rows[0]) throw new Error("home_persist_failed");
+    const stored = mapHome(result.rows[0]);
+    if (stored.regionId !== home.regionId) throw new Error("home_region_immutable");
+    return stored;
+  }
+  async update(home: HomeRecord): Promise<void> {
+    const result = await this.pool.query(
+      "UPDATE homes SET door_open = $2, furniture = $3::jsonb, updated_at = to_timestamp($4 / 1000.0) WHERE owner_id = $1 AND region_id = $5",
+      [home.ownerId, home.doorOpen, JSON.stringify(home.furniture), home.updatedAt, home.regionId]
+    );
+    if (result.rowCount !== 1) throw new Error("home_not_found");
+  }
+}
+
 class PostgresMarket implements MarketRepository {
   constructor(private readonly pool: Pool) {}
   async listActive(): Promise<MarketListing[]> { const result = await this.pool.query<MarketRow>(marketSelect); return result.rows.map(mapMarket); }
@@ -312,6 +352,7 @@ export function createPostgresRepositories(pool: Pool): RepositoryBundle {
     players: new PostgresPlayers(pool),
     farm: new PostgresFarm(pool),
     structures: new PostgresStructures(pool),
+    homes: new PostgresHomes(pool),
     market: new PostgresMarket(pool),
     wallet: new PostgresWallet(pool)
   };
@@ -355,12 +396,14 @@ const playerSelect = `SELECT id, account_id, name, farm_name, specialization, pl
 const playerColumns = `id, account_id, name, farm_name, specialization, plot, home_region_id, current_region_id, clothing, hair, coins, inventory, inventory_qualities, inventory_capacity, last_active_at, position_x, position_y`;
 const farmSelect = `SELECT id, owner_id, region_id, structure_id, content_id, planted_at, last_care_at, last_processed_at, pending_quantity, next_production_at, quality, care_state, behavior_state, appearance_variant_id, position_x, position_y FROM farm_items`;
 const structureSelect = `SELECT id, owner_id, region_id, structure_type, footprint, capacity, cost, state, position_x, position_y FROM farm_structures`;
+const homeSelect = `SELECT owner_id, region_id, door_open, furniture, updated_at FROM homes`;
 const marketSelect = `SELECT id, seller_id, seller_name, content_id, quantity, unit_price, quality, created_at FROM market_listings`;
 
 type FarmRow = QueryResultRow & { id: string; owner_id: string; region_id: string; structure_id: string | null; content_id: string; planted_at: Date | string; last_care_at: Date | string | null; last_processed_at: Date | string; pending_quantity: number; next_production_at: Date | string | null; quality: "common" | "good" | "perfect"; care_state: "awaiting-care" | "attended"; behavior_state: "idle" | "wander" | "hungry" | "seekCare" | "eating" | "happy" | "produce"; appearance_variant_id: string; position_x: number; position_y: number };
 type StructureRow = QueryResultRow & { id: string; owner_id: string; region_id: string; structure_type: FarmStructure["type"]; footprint: FarmStructure["footprint"]; capacity: number; cost: number; state: FarmStructure["state"]; position_x: number; position_y: number };
 type MarketRow = QueryResultRow & { id: string; seller_id: string; seller_name: string; content_id: string; quantity: number; unit_price: number; quality: "common" | "good" | "perfect"; created_at: Date | string };
 type WalletRow = QueryResultRow & { id: string; player_id: string; delta: number; balance: number; reason: WalletEntry["reason"]; reference_id: string | null; created_at: Date | string };
+type HomeRow = QueryResultRow & { owner_id: string; region_id: string; door_open: boolean; furniture: HomeRecord["furniture"] | string; updated_at: Date | string };
 
 function mapAccount(row: AccountRow): Account {
   return {
@@ -404,6 +447,7 @@ function mapFarm(row: FarmRow): FarmItem { return { id: row.id, ownerId: row.own
 function mapStructure(row: StructureRow): FarmStructure { return { id: row.id, ownerId: row.owner_id, regionId: row.region_id, type: row.structure_type, footprint: row.footprint, capacity: row.capacity, cost: row.cost, state: row.state, position: { x: row.position_x, y: row.position_y } }; }
 function mapMarket(row: MarketRow): MarketListing { return { id: row.id, sellerId: row.seller_id, sellerName: row.seller_name, contentId: row.content_id, quantity: row.quantity, unitPrice: row.unit_price, quality: row.quality, createdAt: new Date(row.created_at).getTime() }; }
 function mapWallet(row: WalletRow): WalletEntry { return { id: row.id, playerId: row.player_id, delta: row.delta, balance: row.balance, reason: row.reason, referenceId: row.reference_id, createdAt: new Date(row.created_at).getTime() }; }
+function mapHome(row: HomeRow): HomeRecord { return { ownerId: row.owner_id, regionId: row.region_id, doorOpen: row.door_open, furniture: typeof row.furniture === "string" ? JSON.parse(row.furniture) as HomeRecord["furniture"] : row.furniture, updatedAt: new Date(row.updated_at).getTime() }; }
 
 function asDate(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
