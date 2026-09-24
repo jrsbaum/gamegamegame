@@ -87,8 +87,9 @@ describe("HomeService", () => {
     const { repositories, homes } = await setup();
     await homes.ensurePlayerHome("owner");
     await homes.enter("owner", "region-center");
+    await enterGuestHome(homes, repositories);
     const before = (await homes.snapshotAsync("owner")).home.furniture.find((item) => item.id === "radio");
-    await expect(homes.moveFurniture("guest", "radio", 8, 3)).rejects.toMatchObject({ code: "not_inside_home" });
+    await expect(homes.moveFurniture("guest", "radio", 8, 3)).rejects.toMatchObject({ code: "not_home_owner" });
     await expect(homes.moveFurniture("owner", "radio", 2, 2)).rejects.toMatchObject({ code: "invalid_home_furniture" });
     const moved = await homes.move("owner", "up");
     expect(moved.position).toEqual({ x: 10, y: 11 });
