@@ -10,6 +10,10 @@ const WORLD_BOUNDS = { minX: 0, maxX: WORLD_WIDTH_TILES - 1, minY: 0, maxY: WORL
 const OFFLINE_CAP_SECONDS = 24 * 60 * 60;
 const ONLINE_TICK_MS = 60_000;
 const ONLINE_ACTIVITY_WINDOW_MS = 90_000;
+const MOVE_DELTAS: Record<Direction, { x: number; y: number }> = {
+  up: { x: 0, y: -1 }, "up-right": { x: 1, y: -1 }, right: { x: 1, y: 0 }, "down-right": { x: 1, y: 1 },
+  down: { x: 0, y: 1 }, "down-left": { x: -1, y: 1 }, left: { x: -1, y: 0 }, "up-left": { x: -1, y: -1 },
+};
 
 export type GameRepositories = { players: PlayerRepository; farm: FarmRepository; structures: StructureRepository; market: MarketRepository; wallet: WalletRepository };
 
@@ -98,18 +102,23 @@ export class GameService {
     let position = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
     const regionId = player.currentRegionId ?? player.homeRegionId;
     const structures = await this.repositories.structures.listByOwnerId(playerId);
+    const delta = MOVE_DELTAS[command.direction];
+    const isBlocked = (x: number, y: number) => !isWorldTileWalkable(x, y)
+      || structures.some((structure) => structure.regionId === regionId && insideStructureFootprint(structure, x, y));
     const steps = command.sprint ? 2 : 1;
     let nextPosition = { ...position };
     for (let step = 0; step < steps; step += 1) {
-      if (command.direction === "up") nextPosition.y -= 1;
-      if (command.direction === "down") nextPosition.y += 1;
-      if (command.direction === "left") nextPosition.x -= 1;
-      if (command.direction === "right") nextPosition.x += 1;
-      if (!isWorldTileWalkable(nextPosition.x, nextPosition.y) || structures.some((structure) => structure.regionId === regionId && insideStructureFootprint(structure, nextPosition.x, nextPosition.y))) {
-        nextPosition = step === 0 ? { ...player.position } : { ...position };
+      if (delta.x !== 0 && delta.y !== 0 && (isBlocked(position.x + delta.x, position.y) || isBlocked(position.x, position.y + delta.y))) {
+        nextPosition = { ...position };
         break;
       }
-      position = { ...nextPosition };
+      const candidate = { x: position.x + delta.x, y: position.y + delta.y };
+      if (isBlocked(candidate.x, candidate.y)) {
+        nextPosition = { ...position };
+        break;
+      }
+      position = candidate;
+      nextPosition = candidate;
     }
     const updated: PlayerState = { ...player, lastActiveAt: this.now(), position: nextPosition };
     await this.savePlayer(updated, false);
@@ -492,7 +501,7 @@ function insideStructureFootprint(structure: FarmStructure, x: number, y: number
   const xs = structure.footprint.map((point) => point[0]); const ys = structure.footprint.map((point) => point[1]);
   return x >= Math.min(...xs) && x < Math.max(...xs) && y >= Math.min(...ys) && y < Math.max(...ys);
 }
-function isDirection(value: string): value is Direction { return value === "up" || value === "down" || value === "left" || value === "right"; }
+function isDirection(value: string): value is Direction { return Object.prototype.hasOwnProperty.call(MOVE_DELTAS, value); }
 function clamp(value: number, min: number, max: number): number { return Math.min(max, Math.max(min, value)); }
 
 function asGameError(error: unknown): Error {
