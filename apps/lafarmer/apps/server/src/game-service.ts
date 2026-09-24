@@ -50,6 +50,13 @@ export class GameService {
     };
   }
 
+  async refreshPlayer(playerId: string): Promise<PlayerState> {
+    const player = await this.repositories.players.findById(playerId);
+    if (!player) throw new GameError("player_not_found");
+    this.activePlayers.set(playerId, player);
+    return player;
+  }
+
   async worldPresence(onlinePlayerIds: ReadonlySet<string> = new Set()): Promise<WorldPresence[]> {
     const persistedPlayers = await this.repositories.players.listAll();
     const players = persistedPlayers.map((candidate) => this.activePlayers.get(candidate.id) ?? candidate);
