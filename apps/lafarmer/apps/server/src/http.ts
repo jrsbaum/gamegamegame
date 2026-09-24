@@ -6,6 +6,7 @@ import { GameError, GameService } from "./game-service.js";
 import type { RepositoryBundle } from "./repositories.js";
 import { createPersistence } from "./persistence.js";
 import { attachWebSocketGateway } from "./websocket-gateway.js";
+import { HomeService } from "./home-service.js";
 
 const registerSchema = z.object({ nick: z.string(), password: z.string(), credentialsSaved: z.literal(true) });
 const loginSchema = z.object({ nick: z.string(), password: z.string() });
@@ -34,6 +35,7 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
   });
   const auth = new AuthService(persistence.repositories);
   const game = new GameService({ players: persistence.repositories.players, farm: persistence.repositories.farm, structures: persistence.repositories.structures, market: persistence.repositories.market, wallet: persistence.repositories.wallet });
+  const homes = new HomeService(persistence.repositories.players, persistence.repositories.homes);
   const app = Fastify({ logger: options.logger ?? false });
   app.addHook('onRequest', async (request, reply) => {
     const allowedOrigin = process.env.CORS_ORIGIN ?? request.headers.origin ?? '';
@@ -42,10 +44,11 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
     reply.header('access-control-allow-methods', 'GET,POST,PATCH,OPTIONS');
     if (request.method === 'OPTIONS') return reply.code(204).send();
   });
-  const websocket = attachWebSocketGateway(app.server, auth, game);
+  const websocket = attachWebSocketGateway(app.server, auth, game, homes);
 
   app.addHook("onReady", async () => persistence.initialize());
   app.addHook("onClose", async () => websocket.close());
+  app.addHook("onClose", async () => homes.close());
   app.addHook("onClose", async () => persistence.close());
 
   app.get("/healthz", async () => ({ status: "ok", service: "lafarmer-server" }));

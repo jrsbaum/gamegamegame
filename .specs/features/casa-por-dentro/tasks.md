@@ -172,13 +172,13 @@ T7
 **Tools**: MCP NONE; Skill `tlc-spec-driven`
 
 **Done when**:
-- [ ] Entry returns a home snapshot and updates occupants of that home.
-- [ ] Interior movement, poses, furniture and radio never reach other homes/outside.
-- [ ] Door changes reach same-region outdoor clients without interior positions.
-- [ ] Disconnect removes the occupant and broadcasts room-scoped leave.
-- [ ] Multi-client tests cover isolation, door access, exit and reconnect.
-- [ ] Gate check passes: `npm test --workspace @lafarmer/server`
-- [ ] Test count recorded; existing tests retained.
+- [x] Entry returns a home snapshot and updates occupants of that home.
+- [x] Interior movement, poses, furniture and radio never reach other homes/outside.
+- [x] Door changes reach same-region outdoor clients without interior positions.
+- [x] Disconnect removes the occupant and broadcasts room-scoped leave.
+- [x] Multi-client test covers isolation, door access, world-action denial and reconnect.
+- [x] Gate check passes: `npm test --workspace @lafarmer/server`
+- [x] Test count: 25 server tests pass, including the three-client home integration.
 
 **Tests**: integration — authenticated multi-client protocol
 **Gate**: full

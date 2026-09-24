@@ -163,4 +163,5 @@ export type WorldSnapshot = {
   listings: MarketListing[];
   presence: WorldPresence[];
   offlineProgress: { coins: number; completedCycles: number; blockedByCapacity: number };
+  home?: { ownerId: string; ownerName: string; regionId: string; doorOpen: boolean };
 };
