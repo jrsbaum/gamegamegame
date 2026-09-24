@@ -61,6 +61,7 @@ export class WorldScene extends Phaser.Scene {
   private homeAudio: AudioContext | undefined;
   private radioPlayingUntil = 0;
   private homeControl: Phaser.GameObjects.Text | undefined;
+  private homeExteriorObjects: Phaser.GameObjects.GameObject[] = [];
 
   constructor() { super('world'); }
 
@@ -132,7 +133,10 @@ export class WorldScene extends Phaser.Scene {
     if (presence) { this.knownPresence = presence; this.worldData.onPresence?.(presence); }
     this.worldData.onSnapshot?.(snapshot);
     const home = snapshot.home as HomeView | undefined;
-    if (home && !this.insideHome) this.homeView = home;
+    if (!this.insideHome) {
+      this.homeView = home;
+      this.updateHomeExterior();
+    }
     (snapshot.players as Array<Record<string, unknown>> | undefined)?.forEach((remote) => this.renderRemotePlayer(remote));
     (snapshot.farmItems as Array<Record<string, unknown>> | undefined)?.forEach((item) => this.renderFarmItem(item));
     (snapshot.structures as Array<Record<string, unknown>> | undefined)?.forEach((structure) => this.renderStructure(structure));
@@ -218,7 +222,7 @@ export class WorldScene extends Phaser.Scene {
       if (message.type === 'farm.updated') { const item = message.item as Record<string, unknown> | undefined; if (item) this.renderFarmItem(item); }
       if (message.type === 'hello' || message.type === 'snapshot') this.applySnapshot(message.snapshot as Record<string, unknown>);
       if (message.type === 'world.presence') { const presence = message.presence as WorldPresence[] | undefined; if (presence) { this.knownPresence = presence; this.worldData.onPresence?.(presence); } }
-      if (message.type === 'world.region.entered') { const player = message.player as Record<string, unknown> | undefined; if (player) { this.currentRegionId = String(player.currentRegionId ?? player.homeRegionId ?? this.currentRegionId); const position = player.position as { x?: number; y?: number } | undefined; if (typeof position?.x === 'number' && typeof position.y === 'number') this.applyServerPosition(position.x, position.y); this.worldData.realtime.requestSnapshot(); this.updateConnectionPrompt(); } }
+      if (message.type === 'world.region.entered') { const player = message.player as Record<string, unknown> | undefined; if (player) { this.currentRegionId = String(player.currentRegionId ?? player.homeRegionId ?? this.currentRegionId); const position = player.position as { x?: number; y?: number } | undefined; if (typeof position?.x === 'number' && typeof position.y === 'number') this.applyServerPosition(position.x, position.y); this.updateHomeExterior(); this.worldData.realtime.requestSnapshot(); this.updateConnectionPrompt(); } }
       if (message.type === 'player_joined') { const player = message.player as Record<string, unknown>; this.patchPresence(player, true); this.renderRemotePlayer(player); }
       if (message.type === 'player_moved') { const payload = message as { playerId?: string; player?: Record<string, unknown> }; if (payload.playerId && payload.player) { this.patchPresence({ ...payload.player, id: payload.playerId }, true); this.renderRemotePlayer(payload.player, payload.playerId); } }
       if (message.type === 'player_region_changed') { const payload = message as { playerId?: string; player?: Record<string, unknown> }; if (payload.playerId && payload.player) { this.patchPresence({ ...payload.player, id: payload.playerId }, true); this.renderRemotePlayer(payload.player, payload.playerId); } }
@@ -542,11 +546,28 @@ export class WorldScene extends Phaser.Scene {
     this.label('ponte do vale', this.gridToWorld(25, 14).x, this.gridToWorld(25, 14).y - 36, 10, palette.soil); this.label('seu campo', this.gridToWorld(8, 3).x, this.gridToWorld(8, 3).y - 28, 11, palette.forest);
   }
 
-  private drawObstacles(): void { WORLD_OBSTACLES.forEach((obstacle) => obstacle.kind === 'tree' ? this.drawTree(obstacle) : obstacle.kind === 'rock' ? this.drawRock(obstacle) : this.drawBuilding(obstacle)); }
+  private drawObstacles(): void {
+    WORLD_OBSTACLES.forEach((obstacle) => {
+      if (obstacle.kind === 'tree') this.drawTree(obstacle);
+      else if (obstacle.kind === 'rock') this.drawRock(obstacle);
+      else {
+        const building = this.drawBuilding(obstacle);
+        if (obstacle.kind === 'house') {
+          this.homeExteriorObjects = building;
+          this.updateHomeExterior();
+        }
+      }
+    });
+  }
+
+  private updateHomeExterior(): void {
+    const visible = Boolean(this.homeView && this.homeView.regionId === this.currentRegionId);
+    this.homeExteriorObjects.forEach((object) => setObjectVisible(object, visible));
+  }
   private obstacleCenter(obstacle: WorldObstacle): { x: number; y: number } { return this.gridToWorld(obstacle.x + (obstacle.width - 1) / 2, obstacle.y + (obstacle.height - 1) / 2); }
   private drawTree(obstacle: WorldObstacle): void { const { x, y } = this.obstacleCenter(obstacle); const graphics = this.add.graphics().setDepth(40); graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + 24, 56, 18).fillStyle(color('#76503b'), 1).fillRoundedRect(x - 7, y + 4, 14, 28, 5).fillStyle(color('#4d874e'), 1).fillEllipse(x - 15, y, 50, 52).fillStyle(color('#72a95d'), 1).fillEllipse(x + 14, y - 4, 52, 54).fillStyle(color('#87ba68'), 1).fillEllipse(x, y - 22, 56, 52).fillStyle(color(palette.amber), 1).fillCircle(x - 14, y - 10, 4).fillCircle(x + 12, y - 20, 4); }
   private drawRock(obstacle: WorldObstacle): void { const { x, y } = this.obstacleCenter(obstacle); const graphics = this.add.graphics().setDepth(40); graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + 15, 48, 14).fillStyle(color('#738487'), 1).beginPath().moveTo(x - 24, y + 12).lineTo(x - 15, y - 12).lineTo(x + 2, y - 22).lineTo(x + 24, y - 8).lineTo(x + 18, y + 15).closePath().fillPath().lineStyle(3, color(palette.forest), 0.2).strokePath(); }
-  private drawBuilding(obstacle: WorldObstacle): void { const { x, y } = this.obstacleCenter(obstacle); const width = obstacle.width * WORLD_TILE_SIZE - 10; const height = obstacle.height * WORLD_TILE_SIZE - 12; const graphics = this.add.graphics().setDepth(35); const isMarket = obstacle.kind === 'market'; const body = isMarket ? palette.amber : palette.coral; const roof = isMarket ? '#d86b5d' : '#a7473f'; graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + height / 2 + 12, width + 24, 22).fillStyle(color(body), 1).fillRoundedRect(x - width / 2, y - height / 2 + 12, width, height - 12, 8).fillStyle(color(roof), 1).beginPath().moveTo(x - width / 2 - 8, y - height / 2 + 16).lineTo(x, y - height / 2 - 18).lineTo(x + width / 2 + 8, y - height / 2 + 16).closePath().fillPath().fillStyle(color('#6c4938'), 1).fillRect(x - 15, y + 4, 30, height / 2 - 4); this.label(isMarket ? 'mercadinho' : obstacle.kind === 'barn' ? 'celeiro' : 'casa', x, y - height / 2 - 31, 10, palette.forest); }
+  private drawBuilding(obstacle: WorldObstacle): Phaser.GameObjects.GameObject[] { const { x, y } = this.obstacleCenter(obstacle); const width = obstacle.width * WORLD_TILE_SIZE - 10; const height = obstacle.height * WORLD_TILE_SIZE - 12; const graphics = this.add.graphics().setDepth(35); const isMarket = obstacle.kind === 'market'; const body = isMarket ? palette.amber : palette.coral; const roof = isMarket ? '#d86b5d' : '#a7473f'; graphics.fillStyle(color(palette.forest), 0.2).fillEllipse(x, y + height / 2 + 12, width + 24, 22).fillStyle(color(body), 1).fillRoundedRect(x - width / 2, y - height / 2 + 12, width, height - 12, 8).fillStyle(color(roof), 1).beginPath().moveTo(x - width / 2 - 8, y - height / 2 + 16).lineTo(x, y - height / 2 - 18).lineTo(x + width / 2 + 8, y - height / 2 + 16).closePath().fillPath().fillStyle(color('#6c4938'), 1).fillRect(x - 15, y + 4, 30, height / 2 - 4); const label = this.label(isMarket ? 'mercadinho' : obstacle.kind === 'barn' ? 'celeiro' : 'casa', x, y - height / 2 - 31, 10, palette.forest); return [graphics, label]; }
 
   private createPlayer(profile: PlayerProfile): void { this.player = this.add.graphics().setDepth(100); this.drawPlayer(this.player, profile); this.nameTag = this.label(profile.name, 0, 0, 12, palette.cream).setBackgroundColor(palette.forest); this.updateNameTag(); }
   private updateNameTag(): void {
