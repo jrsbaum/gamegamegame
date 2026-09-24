@@ -2,7 +2,14 @@ export type OutfitId = 'forest' | 'coral' | 'river';
 export type HairId = 'short' | 'long';
 
 export {
+  DEFAULT_HOME_FURNITURE,
   FARM_BOUNDARY,
+  HOME_EXTERIOR_DOOR,
+  HOME_FURNITURE_CATALOG,
+  HOME_HEIGHT_TILES,
+  HOME_INTERIOR_DOOR,
+  HOME_ROOMS,
+  HOME_WIDTH_TILES,
   INITIAL_REGION_IDS,
   ORIGIN_SHOP_OFFERS,
   WORLD_CONNECTIONS,
@@ -13,12 +20,17 @@ export {
   WORLD_WIDTH_TILES,
   getWorldConnection,
   getWorldRegion,
+  createDefaultHomeFurniture,
+  getHomeFurnitureDefinition,
+  isHomeFurniturePlacementValid,
+  isHomeTileWalkable,
+  isHomeWallTile,
   isInsideFarmBoundary,
   isWorldTileWalkable,
   isWorldWaterTile,
   riverColumnAt
 } from '@lafarmer/content';
-export type { OriginShopOffer, WorldConnection, WorldConnectionKind, WorldObstacle, WorldObstacleKind, WorldRegion } from '@lafarmer/content';
+export type { HomeFurniture, HomeFurnitureDefinition, HomeFurnitureType, HomeInteraction, OriginShopOffer, WorldConnection, WorldConnectionKind, WorldObstacle, WorldObstacleKind, WorldRegion } from '@lafarmer/content';
 
 export interface OutfitDefinition {
   id: OutfitId;

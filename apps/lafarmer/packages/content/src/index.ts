@@ -31,6 +31,22 @@ export type Clothing = "forest" | "coral" | "river";
 export type HairStyle = "short" | "long";
 export type PlayerAppearance = { clothing: Clothing; hair: HairStyle };
 
+export {
+  DEFAULT_HOME_FURNITURE,
+  HOME_EXTERIOR_DOOR,
+  HOME_FURNITURE_CATALOG,
+  HOME_HEIGHT_TILES,
+  HOME_INTERIOR_DOOR,
+  HOME_ROOMS,
+  HOME_WIDTH_TILES,
+  createDefaultHomeFurniture,
+  getHomeFurnitureDefinition,
+  isHomeFurniturePlacementValid,
+  isHomeTileWalkable,
+  isHomeWallTile
+} from "./home.js";
+export type { HomeFurniture, HomeFurnitureDefinition, HomeFurnitureType, HomeInteraction } from "./home.js";
+
 export const STARTING_COINS = 1_000;
 export const INVENTORY_CAPACITY = 50;
 export const ONLINE_REWARD_MULTIPLIER = 10;
