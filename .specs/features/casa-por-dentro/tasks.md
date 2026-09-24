@@ -235,11 +235,11 @@ T7
 **Tools**: MCP CUA browser if available; Skill `tlc-spec-driven`
 
 **Done when**:
-- [ ] `npm run build` and `npm test` pass from `apps/lafarmer`.
+- [x] `npm run build` and `npm test` pass from `apps/lafarmer`.
 - [ ] Two-client acceptance covers access, persistence adapter, isolation and radio.
 - [ ] Report distinguishes mock/in-memory from real PostgreSQL evidence.
 - [ ] Independent verifier returns PASS with implementation/test `file:line` evidence.
-- [ ] Gate check passes: `npm run build; npm test`.
+- [x] Gate check passes: `npm run build; npm test`.
 
 **Tests**: full feature suite + browser acceptance
 **Gate**: build
