@@ -33,8 +33,8 @@ describe("bladeTuft", () => {
       lean: [0, 0]
     });
     const position = geometry.getAttribute("position");
-    expect(position.count).toBe(8);
-    expect(atCrest(position)).toBe(2);
+    expect(position.count).toBe(16);
+    expect(atCrest(position)).toBe(4);
     expect(tipGap(position)).toBeGreaterThan(0.05);
     expect(position.getY(position.count - 1)).toBeLessThan(0.6);
     geometry.dispose();

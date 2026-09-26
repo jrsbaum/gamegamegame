@@ -61,4 +61,8 @@ A câmera nasce olhando para o leste (`INITIAL_CAMERA_YAW`), atrás do fazendeir
 
 Estrutura própria bloqueia o corpo mesmo com o fazendeiro em cima (dá para sair). Estrutura alheia bloqueia só por fora. Colheita de tomate (`cycleSeconds` null) some no `farm.harvested`; a laranjeira espera o snapshot. `valley.ts` e `actors.ts` saíram; `movement.ts` fica por causa de `chooseWalk` e do tipo `Direction`.
 
+## Grama
+
+`grass.ts:bladeTuft()` sem `shape` termina em ponta (juncos). O relvado passa `shape` com duas fitas cruzadas e pouco `droop`. Uma fita deitada mostra à câmera de perseguição só a borda fina e volta a parecer agulha.
+
 Updated: 2026-09-26

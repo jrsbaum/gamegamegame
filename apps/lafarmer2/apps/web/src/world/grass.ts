@@ -44,24 +44,33 @@ export const bladeTuft = (blades: number, rng: Rng, height: number, width = 1, s
     const first = positions.length / 3;
     const nx = fx * 0.35 + rootX * 1.5;
     const nz = fz * 0.35 + rootZ * 1.5;
-    const upward = shape ? 2.4 : 1;
+    const upward = shape ? 1.15 : 1;
     const length = Math.hypot(nx, upward, nz);
     if (shape) {
-      for (let row = 0; row <= segments; row += 1) {
-        const t = row / segments;
-        const bow = Math.sin(t * Math.PI) * bladeWidth * 0.45;
-        const forward = lean * bladeHeight * t * t;
-        const y = bladeHeight * (t - shape.droop * t * t);
-        const cx = rootX + fx * forward + fz * bow;
-        const cz = rootZ + fz * forward - fx * bow;
-        const half = bladeWidth * (1 - t * (1 - shape.tipWidth));
-        positions.push(cx + fz * half, y, cz - fx * half, cx - fz * half, y, cz + fx * half);
-        normals.push(nx / length, upward / length, nz / length, nx / length, upward / length, nz / length);
-        heights.push(t, t);
-        if (row === 0) continue;
-        const a = first + (row - 1) * 2;
-        const b = first + row * 2;
-        indices.push(a, a + 1, b, a + 1, b + 1, b);
+      for (let plane = 0; plane < 2; plane += 1) {
+        const angle = facing + plane * Math.PI * 0.5;
+        const px = Math.cos(angle);
+        const pz = Math.sin(angle);
+        const planeFirst = positions.length / 3;
+        const pnx = px * 0.35 + rootX * 1.5;
+        const pnz = pz * 0.35 + rootZ * 1.5;
+        const planeLength = Math.hypot(pnx, upward, pnz);
+        for (let row = 0; row <= segments; row += 1) {
+          const t = row / segments;
+          const bow = Math.sin(t * Math.PI) * bladeWidth * 0.35;
+          const forward = lean * bladeHeight * t * t;
+          const y = bladeHeight * (t - shape.droop * t * t);
+          const cx = rootX + px * forward + pz * bow;
+          const cz = rootZ + pz * forward - px * bow;
+          const half = bladeWidth * (1 - t * (1 - shape.tipWidth));
+          positions.push(cx + pz * half, y, cz - px * half, cx - pz * half, y, cz + px * half);
+          normals.push(pnx / planeLength, upward / planeLength, pnz / planeLength, pnx / planeLength, upward / planeLength, pnz / planeLength);
+          heights.push(t, t);
+          if (row === 0) continue;
+          const a = planeFirst + (row - 1) * 2;
+          const b = planeFirst + row * 2;
+          indices.push(a, a + 1, b, a + 1, b + 1, b);
+        }
       }
       continue;
     }
@@ -297,7 +306,7 @@ const fieldMaterial = (look: FieldLook): THREE.MeshLambertMaterial => {
     fragment = after(
       fragment,
       "color_fragment",
-      "diffuseColor.rgb *= mix(uBase, mix(uTip, uDry, vDry), smoothstep(0.12, 0.92, vH)) * mix(0.82, 1.06, smoothstep(0.0, 0.5, vH)) * vTone;"
+      "diffuseColor.rgb *= mix(uBase, mix(uTip, uDry, vDry), smoothstep(0.12, 0.92, vH)) * mix(0.9, 1.05, smoothstep(0.0, 0.45, vH)) * vTone;"
     );
     fragment = after(fragment, "normal_fragment_begin", "normal = normalize(vNormal);");
     fragment = after(fragment, "lights_fragment_begin", BLADE_FRAGMENT_LIGHT(look.translucency));
@@ -341,12 +350,13 @@ export const createGrassField = (options: GrassFieldOptions): GrassField => {
   const root = new THREE.Group();
   root.name = "grass";
   const rng = createRng(4242);
-  const tuft = bladeTuft(8, rng, 0.46, 1.35, 0.14, 4, {
-    tipWidth: 0.34,
-    droop: 0.62,
-    width: [0.05, 0.09],
-    height: [0.7, 1],
-    lean: [0.4, 1.1]
+  const tuft = bladeTuft(4, rng, 0.5, 1.2, 0.1, 4, {
+    // Stay upright. A blade that falls flat shows the chase camera only its thin edge.
+    tipWidth: 0.5,
+    droop: 0.22,
+    width: [0.055, 0.09],
+    height: [0.8, 1],
+    lean: [0.22, 0.55]
   });
   const side = Math.max(4, Math.round(BLOCK * Math.sqrt(options.density)));
   const count = side * side;
@@ -360,9 +370,9 @@ export const createGrassField = (options: GrassFieldOptions): GrassField => {
   }
   const density = bakeDensity(options.trees, options.clearings);
   const material = fieldMaterial({
-    base: new THREE.Color(0.28, 0.42, 0.14),
-    tip: new THREE.Color(0.66, 0.78, 0.28),
-    dry: new THREE.Color(0.75, 0.62, 0.28),
+    base: new THREE.Color(0.34, 0.5, 0.16),
+    tip: new THREE.Color(0.7, 0.82, 0.3),
+    dry: new THREE.Color(0.78, 0.64, 0.28),
     translucency: 0.55
   });
 
@@ -401,7 +411,7 @@ export const createGrassField = (options: GrassFieldOptions): GrassField => {
       scratchRank[index] = rank;
       scratchLook[at] = hashAt(x, z, 2) * Math.PI * 2;
       scratchLook[at + 1] = (0.75 + 0.5 * hashAt(x, z, 3)) * (0.8 + 0.35 * grow);
-      scratchLook[at + 2] = 0.7 + 0.8 * meadow;
+      scratchLook[at + 2] = 0.85 + 0.3 * meadow;
       scratchLook[at + 3] = smoothstep(0.5, 0.9, valueNoise(x * 0.06 - 7, z * 0.06 - 7) * 0.75 + hashAt(x, z, 4) * 0.3) * (1 - meadow * 0.4);
     }
     for (let index = 0; index < count; index += 1) {
