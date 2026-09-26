@@ -42,7 +42,10 @@ export const GLOBALS = {
   uLamps: { value: Array.from({ length: MAX_LAMPS }, () => new THREE.Vector4(0, -999, 0, 0)) },
   uLampCol: { value: Array.from({ length: MAX_LAMPS }, () => new THREE.Vector3(1, 0.55, 0.24)) },
   uLampN: { value: 0 },
-  uLampOn: { value: 0 }
+  uLampOn: { value: 0 },
+  /** See groundMask.ts. */
+  uGroundMask: { value: null as THREE.Texture | null },
+  uGroundMaskRect: { value: new THREE.Vector4(0, 0, 0, 0) }
 };
 
 export type Globals = typeof GLOBALS;
@@ -111,6 +114,15 @@ uniform vec4 uLamps[${MAX_LAMPS}];
 uniform vec3 uLampCol[${MAX_LAMPS}];
 uniform int uLampN;
 uniform float uLampOn;
+uniform sampler2D uGroundMask;
+uniform vec4 uGroundMaskRect;
+
+/** R: dirt path, G: tilled soil, B: bare ground without grass. Zero outside the farm region. */
+vec4 groundMaskAt(vec2 xz) {
+  vec2 uv = (xz - uGroundMaskRect.xy) * uGroundMaskRect.zw;
+  if (uGroundMaskRect.z == 0.0 || uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec4(0.0);
+  return texture(uGroundMask, uv);
+}
 
 float hash12(vec2 p) {
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);

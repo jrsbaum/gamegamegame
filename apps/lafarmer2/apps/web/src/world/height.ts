@@ -128,15 +128,31 @@ export const riverCenterTile = (ty: number): number => 42 + Math.sin(ty * 0.32) 
 
 export const riverCenterWorld = (wz: number): number => tileToWorldX(riverCenterTile(worldToTile(0, wz).y));
 
-/** Water columns used for the visuals. They ignore the bridge rows so the river runs under the deck. */
-const riverColumnVisual = (row: number): number => {
-  if (row >= 0 && row < WORLD_HEIGHT_TILES) return riverColumnAt(row);
-  return Math.round(riverCenterTile(row) - 1);
+/** Extra river width on each side beyond the farm, in tiles: the gorge stays narrow, the lowlands open up. */
+const widening = (ty: number): number => {
+  if (ty < 0) return Math.min(1, -ty / 16);
+  if (ty > WORLD_HEIGHT_TILES - 1) return Math.min(3, (ty - (WORLD_HEIGHT_TILES - 1)) / 10);
+  return 0;
 };
 
+const riverWidening = (row: number): number => Math.floor(widening(row));
+
+/**
+ * First and last water column of a row for the visuals. Inside the farm they match the
+ * server tiles but ignore the bridge rows, so the river runs under the deck.
+ */
+const riverSpanVisual = (row: number): [number, number] => {
+  const column = row >= 0 && row < WORLD_HEIGHT_TILES ? riverColumnAt(row) : Math.round(riverCenterTile(row) - 1);
+  const extra = riverWidening(row);
+  return [column - extra, column + 2 + extra];
+};
+
+/** Half width of the visual river in tiles, measured from riverCenterTile. */
+export const riverHalfWidthTiles = (ty: number): number => 1.5 + widening(ty);
+
 const waterTile = (x: number, y: number): number => {
-  const column = riverColumnVisual(y);
-  return x >= column && x <= column + 2 ? 1 : 0;
+  const [first, last] = riverSpanVisual(y);
+  return x >= first && x <= last ? 1 : 0;
 };
 
 const splineWeights = (t: number, out: number[]): void => {
@@ -160,11 +176,15 @@ export const waterField = (tx: number, ty: number): number => {
   let sum = 0;
   for (let j = 0; j < 4; j += 1) {
     const row = y0 - 1 + j;
-    const column = riverColumnVisual(row);
     let rowSum = 0;
-    for (let i = 0; i < 4; i += 1) {
-      const x = x0 - 1 + i;
-      if (x >= column && x <= column + 2) rowSum += weightsX[i];
+    if (row < 0 || row >= WORLD_HEIGHT_TILES) {
+      rowSum = smoothstep(-1.2, 1.2, riverHalfWidthTiles(row) - Math.abs(tx - riverCenterTile(row)));
+    } else {
+      const [first, last] = riverSpanVisual(row);
+      for (let i = 0; i < 4; i += 1) {
+        const x = x0 - 1 + i;
+        if (x >= first && x <= last) rowSum += weightsX[i];
+      }
     }
     sum += rowSum * weightsY[j];
   }
@@ -230,7 +250,8 @@ const landHeight = (wx: number, wz: number, tx: number, ty: number): number => {
     const upstream = smoothstep(-90, -420, wz);
     const downstream = smoothstep(90, 420, wz);
     const scale = lerp(lerp(0.2, 0.62, upstream), 0.12, downstream);
-    const corridor = WATER_LEVEL + 0.7 + Math.pow(Math.max(0, riverDx - 8), 1.22) * scale + (fbm(wx * 0.03, wz * 0.03, 3) - 0.5) * 2.2;
+    const flat = 8 + widening(ty) * TILE;
+    const corridor = WATER_LEVEL + 0.7 + Math.pow(Math.max(0, riverDx - flat), 1.22) * scale + (fbm(wx * 0.03, wz * 0.03, 3) - 0.5) * 2.2;
     land = Math.min(land, lerp(land, corridor, smoothstep(-10, 12, sd)));
   }
   return land;
@@ -240,10 +261,11 @@ const landHeight = (wx: number, wz: number, tx: number, ty: number): number => {
 export const computeGroundHeight = (wx: number, wz: number): number => {
   const { x: tx, y: ty } = worldToTile(wx, wz);
   let land = landHeight(wx, wz, tx, ty);
-  const dTiles = Math.abs(tx - riverCenterTile(ty));
-  if (dTiles < 6) {
-    const bank = WATER_LEVEL + 0.22 + fbm(wz * 0.018 + (tx > riverCenterTile(ty) ? 40 : 0), 3.3, 3) * 1.05;
-    land = lerp(land, Math.min(land, bank), smoothstep(5.5, 1.9, dTiles));
+  const center = riverCenterTile(ty);
+  const fromEdge = Math.abs(tx - center) - riverHalfWidthTiles(ty);
+  if (fromEdge < 4.5) {
+    const bank = WATER_LEVEL + 0.22 + fbm(wz * 0.018 + (tx > center ? 40 : 0), 3.3, 3) * 1.05;
+    land = lerp(land, Math.min(land, bank), smoothstep(4, 0.4, fromEdge));
     const field = waterField(tx, ty);
     if (field > 0.004) {
       if (field <= 0.5) {
