@@ -60,10 +60,10 @@ const SPECIES: Record<TreeKind, Species> = {
     leafDepth: 2, clusterStep: 0, cards: [0, 0], cardSize: [0, 0], foliage: "pads"
   },
   citrus: {
-    depth: 3, length: [0.85, 1.2, 0.8, 0.45], radius: 0.085, radiusRatio: [0.62, 0.6, 0.62], children: [4, 3, 3],
-    start: [0.62, 0.3, 0.3], angle: [0.72, 0.7, 0.78], gnarl: [0.1, 0.14, 0.16, 0.18], up: [0.05, 0.05, 0.04, 0.03],
+    depth: 3, length: [0.95, 1.2, 0.8, 0.45], radius: 0.085, radiusRatio: [0.62, 0.6, 0.62], children: [4, 3, 3],
+    start: [0.68, 0.3, 0.3], angle: [0.72, 0.7, 0.78], gnarl: [0.1, 0.14, 0.16, 0.18], up: [0.05, 0.05, 0.04, 0.03],
     droop: [0, 0.06, 0.12, 0.12], spread: [0, 0.4, 0.3, 0.2], segment: [0.24, 0.24, 0.2, 0.16],
-    leafDepth: 2, clusterStep: 0.2, cards: [4, 6], cardSize: [0.4, 0.6], foliage: "citrus"
+    leafDepth: 2, clusterStep: 0.2, cards: [3, 5], cardSize: [0.4, 0.6], foliage: "citrus"
   }
 };
 

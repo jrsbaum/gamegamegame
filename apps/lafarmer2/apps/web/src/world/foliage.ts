@@ -546,9 +546,9 @@ export const citrusClusterTexture = (): THREE.DataTexture => {
       context.restore();
     }
     if (cell !== 3) return;
-    for (let flower = 0; flower < 6; flower += 1) {
+    for (let flower = 0; flower < 3; flower += 1) {
       const [x, y] = twigs[rng.int(0, twigs.length - 1)];
-      const petal = size * rng.range(0.022, 0.03);
+      const petal = size * rng.range(0.018, 0.024);
       context.fillStyle = "rgb(250,248,238)";
       for (let index = 0; index < 5; index += 1) {
         const angle = (index / 5) * TAU + rng.next() * 0.3;
@@ -563,6 +563,225 @@ export const citrusClusterTexture = (): THREE.DataTexture => {
     }
   });
   return toTexture(context);
+};
+
+/** Ovate leaflet with teeth pointing to its tip, from its stalk at the origin along +x. */
+const leafletPath = (context: CanvasRenderingContext2D, length: number, width: number, teeth: number, phase: number): void => {
+  const steps = teeth * 4;
+  const half = (t: number, side: number): number => {
+    const body = Math.pow(Math.sin(Math.PI * Math.pow(t, 0.72)), 0.9);
+    const saw = 0.86 + 0.14 * ((t * teeth + phase + (side > 0 ? 0.5 : 0)) % 1);
+    const lobe = 1 + 0.1 * Math.sin(t * Math.PI * 2.2 + side);
+    return width * 0.5 * body * saw * lobe;
+  };
+  context.beginPath();
+  context.moveTo(0, 0);
+  for (let step = 1; step <= steps; step += 1) context.lineTo((step / steps) * length, -half(step / steps, -1));
+  for (let step = steps - 1; step >= 1; step -= 1) context.lineTo((step / steps) * length, half(step / steps, 1));
+  context.closePath();
+};
+
+const TOMATO_GREENS: Rgb[] = [[52, 92, 36], [44, 82, 32], [60, 100, 40]];
+
+/** Pinnate tomato leaf whose petiole starts at the bottom centre of the cell and runs up it. */
+const drawTomatoLeaf = (context: CanvasRenderingContext2D, x0: number, y0: number, size: number, rng: Rng, young: boolean): void => {
+  const base: [number, number] = [x0 + size * 0.5, y0 + size];
+  const bend: [number, number] = [base[0] + rng.range(-0.08, 0.08) * size, y0 + size * 0.66];
+  const tip: [number, number] = [base[0] + rng.range(-0.05, 0.05) * size, y0 + size * 0.34];
+  const at = (t: number): [number, number] => [
+    (1 - t) * (1 - t) * base[0] + 2 * (1 - t) * t * bend[0] + t * t * tip[0],
+    (1 - t) * (1 - t) * base[1] + 2 * (1 - t) * t * bend[1] + t * t * tip[1]
+  ];
+  const green: Rgb = young ? [80, 126, 50] : TOMATO_GREENS[rng.int(0, TOMATO_GREENS.length - 1)];
+  context.lineCap = "round";
+  context.strokeStyle = css(green, 0.9);
+  for (let step = 0; step < 16; step += 1) {
+    const [ax, ay] = at(step / 16);
+    const [bx, by] = at((step + 1) / 16);
+    context.lineWidth = size * (0.02 - 0.011 * (step / 16));
+    context.beginPath();
+    context.moveTo(ax, ay);
+    context.lineTo(bx, by);
+    context.stroke();
+  }
+  const leaflet = (x: number, y: number, angle: number, length: number, width: number, shade: number): void => {
+    context.save();
+    context.translate(x, y);
+    context.rotate(angle);
+    context.strokeStyle = css(green, 0.85);
+    context.lineWidth = Math.max(1, size * 0.008);
+    context.beginPath();
+    context.moveTo(0, 0);
+    context.lineTo(length * 0.08, 0);
+    context.stroke();
+    context.translate(length * 0.06, 0);
+    const gradient = context.createLinearGradient(0, -width * 0.5, 0, width * 0.5);
+    gradient.addColorStop(0, css(green, shade * 0.88));
+    gradient.addColorStop(0.45, css(green, shade * 1.14));
+    gradient.addColorStop(1, css(green, shade * 0.8));
+    leafletPath(context, length, width, rng.int(5, 7), rng.next());
+    context.fillStyle = gradient;
+    context.fill();
+    context.strokeStyle = css([150, 182, 104], 1, 0.45);
+    context.lineWidth = Math.max(1, size * 0.005);
+    context.beginPath();
+    context.moveTo(length * 0.02, 0);
+    context.quadraticCurveTo(length * 0.5, width * 0.04, length * 0.9, 0);
+    context.stroke();
+    context.strokeStyle = css(green, 0.7, 0.35);
+    context.lineWidth = 1;
+    for (let vein = 1; vein <= 4; vein += 1) {
+      for (const side of [-1, 1]) {
+        context.beginPath();
+        context.moveTo(length * (vein / 5), 0);
+        context.lineTo(length * (vein / 5 + 0.12), side * width * 0.34);
+        context.stroke();
+      }
+    }
+    context.restore();
+  };
+  const pairs = young ? 2 : 3;
+  for (let pair = 0; pair < pairs; pair += 1) {
+    const t = 0.3 + (pair / pairs) * 0.55;
+    const [x, y] = at(t);
+    const [nx, ny] = at(t + 0.02);
+    const along = Math.atan2(ny - y, nx - x);
+    for (const side of [-1, 1]) {
+      const length = size * rng.range(0.2, 0.25) * (0.85 + 0.25 * t);
+      leaflet(x, y, along + side * rng.range(0.85, 1.15), length, length * rng.range(0.5, 0.6), rng.range(0.85, 1.1));
+    }
+    if (young) continue;
+    const [ix, iy] = at(t + 0.09);
+    for (const side of [-1, 1]) leaflet(ix, iy, along + side * 1.3, size * 0.06, size * 0.035, 0.95);
+  }
+  const [tx, ty] = at(1);
+  const [px, py] = at(0.97);
+  leaflet(tx, ty, Math.atan2(ty - py, tx - px), size * 0.28, size * 0.16, 1.05);
+};
+
+/** Tomato truss: a zig-zag of yellow star flowers, buds at its tip, rising from the bottom centre. */
+const drawTomatoTruss = (context: CanvasRenderingContext2D, x0: number, y0: number, size: number, rng: Rng): void => {
+  const stalk = css([86, 122, 50]);
+  context.lineCap = "round";
+  context.strokeStyle = stalk;
+  context.lineWidth = size * 0.02;
+  const start: [number, number] = [x0 + size * 0.5, y0 + size];
+  let cursor: [number, number] = [start[0] + size * 0.02, y0 + size * 0.55];
+  context.beginPath();
+  context.moveTo(start[0], start[1]);
+  context.quadraticCurveTo(start[0] - size * 0.04, y0 + size * 0.8, cursor[0], cursor[1]);
+  context.stroke();
+  const flowers: Array<[number, number]> = [];
+  for (let node = 0; node < 6; node += 1) {
+    const side = node % 2 ? 1 : -1;
+    const next: [number, number] = [cursor[0] + side * size * rng.range(0.06, 0.1), cursor[1] - size * rng.range(0.06, 0.08)];
+    context.lineWidth = size * (0.016 - node * 0.002);
+    context.beginPath();
+    context.moveTo(cursor[0], cursor[1]);
+    context.lineTo(next[0], next[1]);
+    context.stroke();
+    const flower: [number, number] = [next[0] + side * size * 0.08, next[1] - size * 0.03];
+    context.lineWidth = Math.max(1, size * 0.007);
+    context.beginPath();
+    context.moveTo(next[0], next[1]);
+    context.lineTo(flower[0], flower[1]);
+    context.stroke();
+    flowers.push(flower);
+    cursor = next;
+  }
+  flowers.forEach(([x, y], index) => {
+    if (index >= 4) {
+      context.fillStyle = css([196, 200, 92]);
+      context.beginPath();
+      context.ellipse(x, y, size * 0.018, size * 0.03, rng.range(-0.5, 0.5), 0, TAU);
+      context.fill();
+      return;
+    }
+    const turn = rng.range(0, TAU);
+    context.fillStyle = css([74, 112, 42]);
+    for (let sepal = 0; sepal < 6; sepal += 1) {
+      const angle = turn + (sepal / 6) * TAU + TAU / 12;
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineTo(x + Math.cos(angle - 0.12) * size * 0.02, y + Math.sin(angle - 0.12) * size * 0.02);
+      context.lineTo(x + Math.cos(angle) * size * 0.06, y + Math.sin(angle) * size * 0.06);
+      context.lineTo(x + Math.cos(angle + 0.12) * size * 0.02, y + Math.sin(angle + 0.12) * size * 0.02);
+      context.fill();
+    }
+    for (let petal = 0; petal < 6; petal += 1) {
+      const angle = turn + (petal / 6) * TAU;
+      const gradient = context.createLinearGradient(x, y, x + Math.cos(angle) * size * 0.075, y + Math.sin(angle) * size * 0.075);
+      gradient.addColorStop(0, css([232, 184, 40]));
+      gradient.addColorStop(1, css([250, 222, 70]));
+      context.fillStyle = gradient;
+      context.beginPath();
+      context.moveTo(x + Math.cos(angle - 0.4) * size * 0.012, y + Math.sin(angle - 0.4) * size * 0.012);
+      context.lineTo(x + Math.cos(angle) * size * 0.075, y + Math.sin(angle) * size * 0.075);
+      context.lineTo(x + Math.cos(angle + 0.4) * size * 0.012, y + Math.sin(angle + 0.4) * size * 0.012);
+      context.fill();
+    }
+    context.fillStyle = css([226, 170, 30]);
+    context.beginPath();
+    context.arc(x, y, size * 0.018, 0, TAU);
+    context.fill();
+  });
+};
+
+/**
+ * 2x2 atlas for tomato plants: two mature compound leaves, a young leaf and a flower truss.
+ * Every cell starts at its bottom centre, where the card meets the stem.
+ */
+export const tomatoLeafTexture = (): THREE.DataTexture => {
+  const context = createCanvas(512, 512);
+  const rng = createRng(83);
+  eachCell(context, 2, 2, (cell, x0, y0, size) => {
+    if (cell === 3) drawTomatoTruss(context, x0, y0, size, rng);
+    else drawTomatoLeaf(context, x0, y0, size, rng, cell === 2);
+  });
+  return toTexture(context);
+};
+
+/**
+ * Tileable straw mulch: overlapping stalks in golden and weathered grey, with gaps where the soil
+ * shows through the alpha. Repeats seamlessly.
+ */
+export const strawTexture = (): THREE.DataTexture => {
+  const size = 512;
+  const context = createCanvas(size, size);
+  const rng = createRng(97);
+  const straws: Rgb[] = [[214, 184, 118], [192, 160, 98], [168, 142, 96], [150, 132, 104], [226, 202, 140]];
+  context.lineCap = "round";
+  for (let stalk = 0; stalk < 2000; stalk += 1) {
+    const x = rng.range(0, size);
+    const y = rng.range(0, size);
+    const angle = rng.range(-0.7, 0.7) + (rng.next() < 0.3 ? Math.PI / 2 : 0);
+    const length = rng.range(24, 80);
+    const dx = Math.cos(angle) * length;
+    const dy = Math.sin(angle) * length;
+    const bow = rng.range(-6, 6);
+    const color = straws[rng.int(0, straws.length - 1)];
+    const light = rng.range(0.7, 1.15);
+    const width = rng.range(1.4, 3.2);
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        const sx = x + ox;
+        const sy = y + oy;
+        if (sx + Math.abs(dx) < -4 || sx - Math.abs(dx) > size + 4 || sy + Math.abs(dy) < -4 || sy - Math.abs(dy) > size + 4) continue;
+        context.strokeStyle = css(color, light * 0.6);
+        context.lineWidth = width + 1;
+        context.beginPath();
+        context.moveTo(sx, sy);
+        context.quadraticCurveTo(sx + dx / 2 - (dy / length) * bow, sy + dy / 2 + (dx / length) * bow, sx + dx, sy + dy);
+        context.stroke();
+        context.strokeStyle = css(color, light);
+        context.lineWidth = width;
+        context.stroke();
+      }
+    }
+  }
+  const texture = toTexture(context);
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
 };
 
 /** 2x2 atlas of shrub foliage: two plain leaf masses and two azaleas in flower. */
