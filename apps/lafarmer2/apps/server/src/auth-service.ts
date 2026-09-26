@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { randomBytes, randomUUID } from "node:crypto";
-import { createDefaultAppearance, INVENTORY_CAPACITY, STARTING_COINS, type Clothing, type HairStyle } from "@lafarmer2/content";
+import { createDefaultAppearance, INVENTORY_CAPACITY, PLAYER_SPAWN, STARTING_COINS, type Clothing, type HairStyle } from "@lafarmer2/content";
 import type { Account, PlayerState, Session, Specialization, WalletEntry } from "./domain.js";
 import type { RepositoryBundle } from "./repositories.js";
 import { buildLandOptions, buildWorldOverview } from "./world-service.js";
@@ -91,7 +91,7 @@ export class AuthService {
       lastActiveAt: this.now(),
       homeRegionId: null,
       currentRegionId: null,
-      position: { x: 8, y: 8 }
+      position: { x: PLAYER_SPAWN.x, y: PLAYER_SPAWN.y }
     };
     await this.repositories.players.insert(player);
     const startingEntry: WalletEntry = {

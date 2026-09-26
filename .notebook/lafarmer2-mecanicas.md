@@ -52,4 +52,12 @@ Economia: painéis de inventário (nome + qualidade), anúncio com quantidade/pr
 
 Vaca: oferta `feed` na loja `dinosaurs`; `adopt("cow")` exige `animal_pen` + ração; dino continua exigindo `dinosaur_enclosure` + ovo/fóssil.
 
+## Movimento no vale 3D
+
+Cliente: `apps/lafarmer2/apps/web/src/world/WorldView.ts` + `movement.ts:chooseWalk()`.
+Servidor: `apps/lafarmer2/apps/server/src/game-service.ts:GameService.move()` continua 1 tile, ou 2 no sprint, e recusa água/obstáculo/estrutura.
+Spawn: `PLAYER_SPAWN` em `packages/content/src/index.ts` — (20, 12). O tile (8, 8) encosta nas árvores (9, 7), (10, 7) e (11, 8); o terceiro passo a leste para.
+
+A câmera não pode mirar o coração (42, 30). Isso empurra o enquadramento para fora da fazenda, o raio contra o morro enfia a câmera no terreno e o quadro vai para o preto. Yaw fica atrás do fazendeiro; W é o eixo da câmera.
+
 Updated: 2026-09-26

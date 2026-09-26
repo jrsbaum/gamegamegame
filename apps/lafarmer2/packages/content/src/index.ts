@@ -73,6 +73,9 @@ export const WORLD_WIDTH_TILES = 80;
 export const WORLD_HEIGHT_TILES = 60;
 export const WORLD_TILE_SIZE = 48;
 
+/** Open meadow inside the farm. The old (8, 8) tile sits against the trees at (9, 7), (10, 7) and (11, 8). */
+export const PLAYER_SPAWN = { x: 20, y: 12 } as const;
+
 export type WorldObstacleKind = "tree" | "rock" | "barn" | "market" | "house" | "gate" | "bridge";
 export type WorldObstacle = { kind: WorldObstacleKind; x: number; y: number; width: number; height: number };
 

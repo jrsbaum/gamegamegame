@@ -1,5 +1,6 @@
 import {
   MARKET_TILE,
+  PLAYER_SPAWN,
   WORLD_CONNECTIONS,
   getWorldRegion,
   isWorldTileWalkable,
@@ -8,10 +9,20 @@ import {
 } from "@lafarmer2/content";
 import * as THREE from "three";
 import type { RealtimeClient, WorldPresence } from "../network";
-import { createFarmItemMesh, createFarmer, createStructureMesh, createTerrain, tileToWorld } from "./meshes";
+import { createFarmItemMesh, createFarmer, createStructureMesh, poseActor } from "./actors";
+import { TILE, sampleHeight, tileToWorld, worldToTile } from "./height";
+import {
+  INITIAL_CAMERA_YAW,
+  SPRINT_TILES_PER_SECOND,
+  WALK_TILES_PER_SECOND,
+  chooseWalk,
+  directionFromYaw,
+  forwardFromYaw,
+  type PlanarInput
+} from "./movement";
+import { createValley, type Valley } from "./valley";
 
-const MOVE_INTERVAL = 220;
-const RECONCILE_TILES = 1.35;
+const STEP_LEAD = TILE * 0.5;
 
 export type Direction = "up" | "down" | "left" | "right";
 
@@ -28,6 +39,7 @@ export type WorldCallbacks = {
   onMarket: () => void;
   onConnectionPrompt: (message: string) => void;
   onMessage: (text: string) => void;
+  onTime?: (label: string) => void;
 };
 
 type FarmView = { id: string; contentId: string; ready: boolean; visualKey: string; mesh: THREE.Group; tileX: number; tileY: number };
@@ -44,10 +56,19 @@ export class WorldView {
   private readonly remotes = new Map<string, THREE.Group>();
   private readonly farmItems = new Map<string, FarmView>();
   private readonly structures = new Map<string, THREE.Group>();
-  private facing: Direction = "down";
-  private tile = { x: 8, y: 8 };
+  private facing: Direction = "right";
+  private tile: { x: number; y: number } = { x: PLAYER_SPAWN.x, y: PLAYER_SPAWN.y };
   private display = new THREE.Vector3();
   private lastMoveAt = 0;
+  private lastBlockedAt = 0;
+  private stuck = false;
+  private preferCrossAxis = false;
+  private gait: "walk" | "sprint" = "walk";
+  private cameraYaw = INITIAL_CAMERA_YAW;
+  private cameraSnapped = false;
+  private dragging = false;
+  private dragX = 0;
+  private lastFrame = performance.now();
   private lastRegionEntryAt = 0;
   private lastPrompt = "";
   private currentRegionId = "";
@@ -56,27 +77,39 @@ export class WorldView {
   private raf = 0;
   private disposed = false;
   private unbindRealtime: (() => void) | undefined;
+  private readonly valley: Valley;
+  private readonly cameraAim = new THREE.Vector3();
+  private readonly cameraGoal = new THREE.Vector3();
+  private readonly cameraRay = new THREE.Raycaster();
+  private lastTimeLabel = "";
 
   constructor(root: HTMLElement, callbacks: WorldCallbacks) {
     this.root = root;
     this.callbacks = callbacks;
-    this.scene.background = new THREE.Color(0x8ec8d4);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.72));
-    const sun = new THREE.DirectionalLight(0xfff1c9, 1.05);
-    sun.position.set(18, 28, 10);
-    this.scene.add(sun);
-    this.scene.add(createTerrain());
+    this.valley = createValley(this.scene);
     this.player = createFarmer(callbacks.appearance.clothing, callbacks.appearance.hair);
+    this.player.traverse((child) => { if (child instanceof THREE.Mesh) child.castShadow = true; });
+    this.player.rotation.y = INITIAL_CAMERA_YAW;
     this.scene.add(this.player);
-    this.setTile(8, 8, true);
+    this.setTile(PLAYER_SPAWN.x, PLAYER_SPAWN.y, true);
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.localClippingEnabled = true;
     this.renderer.domElement.setAttribute("aria-hidden", "true");
     root.append(this.renderer.domElement);
     this.handleResize();
     window.addEventListener("resize", this.handleResize);
     window.addEventListener("keydown", this.handleKeyDown);
     window.addEventListener("keyup", this.handleKeyUp);
+    this.renderer.domElement.addEventListener("pointerdown", this.handlePointerDown);
+    this.renderer.domElement.addEventListener("pointermove", this.handlePointerMove);
+    this.renderer.domElement.addEventListener("pointerup", this.handlePointerUp);
+    this.renderer.domElement.addEventListener("pointercancel", this.handlePointerUp);
+    this.renderer.domElement.addEventListener("contextmenu", this.blockContextMenu);
     this.bindTouch();
     this.unbindRealtime = callbacks.realtime.onMessage((message) => this.handleMessage(message));
     this.tick();
@@ -88,7 +121,13 @@ export class WorldView {
     window.removeEventListener("resize", this.handleResize);
     window.removeEventListener("keydown", this.handleKeyDown);
     window.removeEventListener("keyup", this.handleKeyUp);
+    this.renderer.domElement.removeEventListener("pointerdown", this.handlePointerDown);
+    this.renderer.domElement.removeEventListener("pointermove", this.handlePointerMove);
+    this.renderer.domElement.removeEventListener("pointerup", this.handlePointerUp);
+    this.renderer.domElement.removeEventListener("pointercancel", this.handlePointerUp);
+    this.renderer.domElement.removeEventListener("contextmenu", this.blockContextMenu);
     this.unbindRealtime?.();
+    this.valley.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -107,6 +146,8 @@ export class WorldView {
     next.position.copy(this.player.position);
     this.player.clear();
     this.player.add(...next.children);
+    this.player.userData.limbs = next.userData.limbs;
+    this.player.userData.animate = "walk";
   }
 
   private handleResize = (): void => {
@@ -118,13 +159,38 @@ export class WorldView {
   };
 
   private handleKeyDown = (event: KeyboardEvent): void => {
-    if (event.repeat && ["e", "E"].includes(event.key)) return;
-    this.keys.add(event.key.toLowerCase());
-    if (event.key.toLowerCase() === "e") this.interact();
+    const key = event.key.toLowerCase();
+    if (event.repeat && key === "e") return;
+    if (key === " " || key.startsWith("arrow")) event.preventDefault();
+    this.keys.add(key);
+    if (key === "e") this.interact();
   };
 
   private handleKeyUp = (event: KeyboardEvent): void => {
     this.keys.delete(event.key.toLowerCase());
+  };
+
+  private blockContextMenu = (event: Event): void => {
+    event.preventDefault();
+  };
+
+  private handlePointerDown = (event: PointerEvent): void => {
+    if (event.button !== 0 && event.button !== 2) return;
+    this.dragging = true;
+    this.dragX = event.clientX;
+    this.renderer.domElement.setPointerCapture(event.pointerId);
+  };
+
+  private handlePointerMove = (event: PointerEvent): void => {
+    if (!this.dragging) return;
+    const dx = event.clientX - this.dragX;
+    this.dragX = event.clientX;
+    this.cameraYaw -= dx * 0.005;
+  };
+
+  private handlePointerUp = (event: PointerEvent): void => {
+    this.dragging = false;
+    if (this.renderer.domElement.hasPointerCapture(event.pointerId)) this.renderer.domElement.releasePointerCapture(event.pointerId);
   };
 
   private bindTouch(): void {
@@ -142,39 +208,84 @@ export class WorldView {
   private tick = (): void => {
     if (this.disposed) return;
     const now = performance.now();
-    const direction = this.heldDirection();
-    if (direction && now - this.lastMoveAt >= MOVE_INTERVAL) {
+    const dt = Math.min(0.05, (now - this.lastFrame) / 1000);
+    this.lastFrame = now;
+    if (this.keys.has("q")) this.cameraYaw += 2.2 * dt;
+    this.facing = directionFromYaw(this.cameraYaw);
+    const input = this.moveInput();
+    const sprint = this.keys.has(" ") || this.keys.has("space");
+    const remain = Math.hypot(this.display.x - this.player.position.x, this.display.z - this.player.position.z);
+    const retry = this.stuck ? 320 : 70;
+    if (input && this.pendingMoves.size < 2 && remain <= STEP_LEAD && now - this.lastMoveAt >= retry) {
       this.lastMoveAt = now;
-      this.tryMove(direction, this.keys.has(" ") || this.keys.has("space"));
+      this.stuck = !this.tryMove(input, sprint);
     }
-    this.player.position.lerp(this.display, 0.18);
-    const cameraTarget = this.player.position.clone();
-    this.camera.position.lerp(new THREE.Vector3(cameraTarget.x - 6, 8.5, cameraTarget.z + 8), 0.08);
-    this.camera.lookAt(cameraTarget.x, 0.8, cameraTarget.z);
+    this.slidePlayer(dt);
+    this.turnPlayer(dt);
+    const moving = Math.hypot(this.display.x - this.player.position.x, this.display.z - this.player.position.z) > 0.04 || Boolean(input);
+    poseActor(this.player, now, moving);
+    this.farmItems.forEach((item) => poseActor(item.mesh, now, false));
+    this.remotes.forEach((remote) => poseActor(remote, now, true));
+    this.followCamera(dt);
+    const phase = this.valley.update(now, this.player.position, this.renderer, this.scene, this.camera);
+    if (phase.name !== this.lastTimeLabel) {
+      this.lastTimeLabel = phase.name;
+      this.callbacks.onTime?.(phase.name);
+    }
     this.updateConnectionPrompt();
     this.renderer.render(this.scene, this.camera);
     this.raf = requestAnimationFrame(this.tick);
   };
 
-  private heldDirection(): Direction | undefined {
-    if (this.touchDirection) return this.touchDirection;
-    if (this.keys.has("d") || this.keys.has("arrowright")) return "right";
-    if (this.keys.has("a") || this.keys.has("arrowleft")) return "left";
-    if (this.keys.has("s") || this.keys.has("arrowdown")) return "down";
-    if (this.keys.has("w") || this.keys.has("arrowup")) return "up";
-    return undefined;
+  private moveInput(): PlanarInput | undefined {
+    let forward = 0;
+    let strafe = 0;
+    const touch = this.touchDirection;
+    if (touch === "up" || this.keys.has("w") || this.keys.has("arrowup")) forward += 1;
+    if (touch === "down" || this.keys.has("s") || this.keys.has("arrowdown")) forward -= 1;
+    if (touch === "right" || this.keys.has("d") || this.keys.has("arrowright")) strafe += 1;
+    if (touch === "left" || this.keys.has("a") || this.keys.has("arrowleft")) strafe -= 1;
+    const length = Math.hypot(forward, strafe);
+    if (length < 0.01) return undefined;
+    return { forward: forward / length, strafe: strafe / length };
   }
 
-  private tryMove(direction: Direction, sprint: boolean): void {
-    this.facing = direction;
-    const next = this.stepFrom(this.tile, direction, sprint ? 2 : 1);
-    if (!isWorldTileWalkable(next.x, next.y)) {
-      this.callbacks.onMessage("Água ou um prédio bloqueia esse passo.");
-      return;
+  private tryMove(input: PlanarInput, sprint: boolean): boolean {
+    const choice = chooseWalk(this.tile, this.cameraYaw, input, this.preferCrossAxis, isWorldTileWalkable, sprint);
+    if (!choice) {
+      if (performance.now() - this.lastBlockedAt > 700) {
+        this.lastBlockedAt = performance.now();
+        this.callbacks.onMessage("Água, árvore ou prédio bloqueia esse passo.");
+      }
+      return false;
     }
-    this.setTile(next.x, next.y, false);
-    const actionId = this.callbacks.realtime.move(direction, sprint);
-    if (actionId) this.pendingMoves.set(actionId, direction);
+    const steps = Math.abs(choice.x - this.tile.x) + Math.abs(choice.y - this.tile.y);
+    const actionId = this.callbacks.realtime.move(choice.direction, sprint && steps === 2);
+    if (!actionId) return false;
+    this.pendingMoves.set(actionId, choice.direction);
+    this.preferCrossAxis = !this.preferCrossAxis;
+    this.gait = sprint && steps === 2 ? "sprint" : "walk";
+    this.setTile(choice.x, choice.y, false);
+    return true;
+  }
+
+  private slidePlayer(dt: number): void {
+    const tilesPerSecond = this.gait === "sprint" ? SPRINT_TILES_PER_SECOND : WALK_TILES_PER_SECOND;
+    const dx = this.display.x - this.player.position.x;
+    const dz = this.display.z - this.player.position.z;
+    const distance = Math.hypot(dx, dz);
+    if (distance > 0.0001) {
+      const step = Math.min(distance, tilesPerSecond * TILE * dt);
+      this.player.position.x += (dx / distance) * step;
+      this.player.position.z += (dz / distance) * step;
+    }
+    const foot = worldToTile(this.player.position.x, this.player.position.z);
+    this.player.position.y = sampleHeight(foot.x, foot.y);
+  }
+
+  private turnPlayer(dt: number): void {
+    const delta = Math.atan2(Math.sin(this.cameraYaw - this.player.rotation.y), Math.cos(this.cameraYaw - this.player.rotation.y));
+    this.player.rotation.y += delta * (1 - Math.exp(-12 * dt));
   }
 
   private stepFrom(origin: { x: number; y: number }, direction: Direction, steps: number): { x: number; y: number } {
@@ -194,9 +305,54 @@ export class WorldView {
 
   private setTile(x: number, y: number, snap: boolean): void {
     this.tile = { x, y };
-    this.display.copy(tileToWorld(x, y));
-    this.display.y = 0;
-    if (snap) this.player.position.copy(this.display);
+    const point = tileToWorld(x, y);
+    this.display.set(point.x, point.y, point.z);
+    if (snap) {
+      this.player.position.copy(this.display);
+      this.cameraSnapped = false;
+    }
+  }
+
+  private followCamera(dt: number): void {
+    const forward = forwardFromYaw(this.cameraYaw);
+    const distance = 6.8;
+    const height = 3.35;
+    const origin = this.player.position.clone();
+    origin.y += 1.45;
+    this.cameraGoal.set(
+      this.player.position.x - forward.x * distance,
+      this.player.position.y + height,
+      this.player.position.z - forward.z * distance
+    );
+    this.liftCamera(this.cameraGoal);
+    const toCamera = this.cameraGoal.clone().sub(origin);
+    const span = toCamera.length();
+    if (span > 0.001) {
+      this.cameraRay.near = 0.2;
+      this.cameraRay.far = span;
+      this.cameraRay.set(origin, toCamera.normalize());
+      const hit = this.cameraRay.intersectObject(this.valley.terrain, false)[0];
+      if (hit && hit.distance < span - 0.35) {
+        this.cameraGoal.copy(origin).addScaledVector(toCamera, Math.max(2.8, hit.distance - 0.4));
+        this.liftCamera(this.cameraGoal);
+      }
+    }
+    const blend = this.cameraSnapped ? 1 - Math.exp(-10 * dt) : 1;
+    this.camera.position.lerp(this.cameraGoal, blend);
+    this.liftCamera(this.camera.position);
+    this.cameraSnapped = true;
+    const look = origin.clone();
+    look.x += forward.x * 1.35;
+    look.z += forward.z * 1.35;
+    look.y = this.player.position.y + 1.15;
+    this.cameraAim.lerp(look, blend);
+    this.camera.lookAt(this.cameraAim);
+  }
+
+  private liftCamera(point: THREE.Vector3): void {
+    const tile = worldToTile(point.x, point.z);
+    const floor = sampleHeight(tile.x, tile.y);
+    if (point.y < floor + 0.9) point.y = floor + 0.9;
   }
 
   private frontTile(): { x: number; y: number } {
@@ -358,7 +514,7 @@ export class WorldView {
   private reconcile(x: number, y: number, actionId?: string): void {
     if (actionId) this.pendingMoves.delete(actionId);
     const drift = Math.abs(this.tile.x - x) + Math.abs(this.tile.y - y);
-    if (drift > RECONCILE_TILES && this.pendingMoves.size === 0) this.setTile(x, y, false);
+    if (drift > this.pendingMoves.size) this.setTile(x, y, drift > 2);
   }
 
   private renderFarmItem(item: Record<string, unknown>): void {
@@ -371,8 +527,7 @@ export class WorldView {
     const contentId = String(item.contentId ?? "tomato");
     const visualKey = String(item.visualKey ?? contentId);
     const ready = Boolean(item.ready);
-    const mesh = createFarmItemMesh(visualKey, contentId, ready, String(item.behaviorState ?? ""));
-    mesh.position.copy(tileToWorld(tileX, tileY));
+    const mesh = createFarmItemMesh(visualKey, contentId, ready, tileX, tileY);
     this.scene.add(mesh);
     this.farmItems.set(id, { id, contentId, ready, visualKey, mesh, tileX, tileY });
     this.notifyFarm();
@@ -396,7 +551,8 @@ export class WorldView {
     if (typeof position?.x !== "number" || typeof position.y !== "number") return;
     this.removeRemote(id);
     const mesh = createFarmer(appearance?.clothing ?? "forest", appearance?.hair ?? "short");
-    mesh.position.copy(tileToWorld(position.x, position.y));
+    const point = tileToWorld(position.x, position.y);
+    mesh.position.set(point.x, point.y, point.z);
     this.scene.add(mesh);
     this.remotes.set(id, mesh);
   }

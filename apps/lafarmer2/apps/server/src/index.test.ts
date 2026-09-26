@@ -1,3 +1,4 @@
+import { isWorldTileWalkable, PLAYER_SPAWN } from "@lafarmer2/content";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { createApp } from "./http.js";
@@ -125,6 +126,8 @@ describe("La Farmer 2 server", () => {
     if (!hello) throw new Error("missing websocket hello");
     const before = hello.snapshot.player.position.x;
     const beforeY = hello.snapshot.player.position.y;
+    expect(before).toBe(PLAYER_SPAWN.x);
+    expect(beforeY).toBe(PLAYER_SPAWN.y);
     socket.send(JSON.stringify({ type: "move", actionId: "move-1", direction: "right" }));
     await waitFor(() => messages.some((message) => message.type === "move_ack"));
     const firstAck = messages.find((message) => message.type === "move_ack");
@@ -139,14 +142,23 @@ describe("La Farmer 2 server", () => {
     socket.send(JSON.stringify({ type: "move", actionId: "move-2", direction: "right" }));
     await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === "move-2"));
     expect(messages.find((message) => message.type === "move_ack" && message.actionId === "move-2")?.player.position.x).toBe(before + 2);
-    socket.send(JSON.stringify({ type: "move", actionId: "move-3", direction: "right" }));
-    await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === "move-3"));
-    const blockedAck = messages.find((message) => message.type === "move_ack" && message.actionId === "move-3");
-    if (!blockedAck) throw new Error("missing blocked movement acknowledgement");
-    expect(blockedAck.player.position.x).toBe(before + 2);
     socket.send(JSON.stringify({ type: "move", actionId: "move-sprint", direction: "down", sprint: true }));
     await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === "move-sprint"));
     expect(messages.find((message) => message.type === "move_ack" && message.actionId === "move-sprint")?.player.position.y).toBe(beforeY + 2);
+    let blockedX = before + 2;
+    let guard = 0;
+    while (guard < 40) {
+      const actionId = `move-east-${guard}`;
+      socket.send(JSON.stringify({ type: "move", actionId, direction: "right" }));
+      await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === actionId));
+      const ack = messages.find((message) => message.type === "move_ack" && message.actionId === actionId);
+      if (!ack) throw new Error("missing eastbound acknowledgement");
+      if (ack.player.position.x === blockedX) break;
+      blockedX = ack.player.position.x;
+      guard += 1;
+    }
+    expect(blockedX).toBeGreaterThan(before + 8);
+    expect(isWorldTileWalkable(blockedX + 1, beforeY + 2)).toBe(false);
     socket.close();
   });
 
@@ -211,7 +223,7 @@ describe("La Farmer 2 server", () => {
     const sellerOptions = (await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${seller.json().token}` } })).json().options;
     await app.inject({ method: "PATCH", url: "/api/player/profile", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { name: "Seller", farmName: "Seller Farm", specialization: "vegetables", plotId: sellerOptions[0].id, clothing: "forest", hair: "short" } });
 
-    const planted = await app.inject({ method: "POST", url: "/api/farm/plant", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", x: 5, y: 5 } });
+    const planted = await app.inject({ method: "POST", url: "/api/farm/plant", headers: { authorization: `Bearer ${seller.json().token}` }, payload: { contentId: "tomato", x: PLAYER_SPAWN.x + 1, y: PLAYER_SPAWN.y } });
     expect(planted.statusCode).toBe(201);
     expect(planted.json().item.stageId).toBe("soil");
 

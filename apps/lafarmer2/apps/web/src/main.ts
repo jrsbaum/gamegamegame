@@ -265,11 +265,12 @@ const renderGame = (): void => {
           <div class="bg-cream text-ink px-3 py-2"><small class="block">moedas</small><strong id="coins-value">${coins.toLocaleString("pt-BR")}</strong></div>
           <div class="bg-cream text-ink px-3 py-2"><small class="block">estoque</small><strong id="inventory-value">${inventoryTotal()}</strong></div>
           <div class="bg-cream text-ink px-3 py-2"><small class="block">produção</small><strong id="production-value">0 prontos</strong></div>
+          <div class="bg-cream text-ink px-3 py-2"><small class="block">hora</small><strong id="time-of-day">Meio-dia</strong></div>
           <div class="bg-cream text-ink px-3 py-2"><span id="connection-status">${realtime.status === "connected" ? "online" : "conectando"}</span></div>
         </div>
       </header>
       <div>
-        <p class="bg-ink/70 text-cream inline-block px-3 py-1 text-sm mb-2"><kbd>WASD</kbd> andar · <kbd>espaço</kbd> correr · <kbd>E</kbd> interagir</p>
+        <p class="bg-ink/70 text-cream inline-block px-3 py-1 text-sm mb-2"><kbd>WASD</kbd> anda com a câmera · arraste o mouse ou <kbd>Q</kbd> para girar · <kbd>espaço</kbd> correr · <kbd>E</kbd> interagir</p>
         <div class="pointer-events-auto flex flex-wrap gap-2" aria-label="Ações rápidas">
           <button id="open-origin-shop" class="bg-amber text-ink px-3 py-2 font-bold" type="button">Loja do Vale</button>
           <button id="build-enclosure" class="bg-cream text-ink px-3 py-2" type="button">Construir</button>
@@ -282,10 +283,10 @@ const renderGame = (): void => {
         <p id="action-message" class="mt-2 bg-cream/90 text-ink px-3 py-2 max-w-xl" role="status" aria-live="polite"></p>
         <p id="hud-bottom-message" class="mt-1 text-cream/90 text-sm">Chegue perto de uma produção para ver seu estado.</p>
         <div class="pointer-events-auto mt-3 w-40 grid grid-cols-3 gap-1 md:hidden" aria-label="Controles de movimento">
-          <span></span><button type="button" class="bg-cream text-ink py-3" data-direction="up" aria-label="Andar para cima">↑</button><span></span>
-          <button type="button" class="bg-cream text-ink py-3" data-direction="left" aria-label="Andar para a esquerda">←</button>
-          <button type="button" class="bg-cream text-ink py-3" data-direction="down" aria-label="Andar para baixo">↓</button>
-          <button type="button" class="bg-cream text-ink py-3" data-direction="right" aria-label="Andar para a direita">→</button>
+          <span></span><button type="button" class="bg-cream text-ink py-3" data-direction="up" aria-label="Andar para frente">↑</button><span></span>
+          <button type="button" class="bg-cream text-ink py-3" data-direction="left" aria-label="Andar para a esquerda da tela">←</button>
+          <button type="button" class="bg-cream text-ink py-3" data-direction="down" aria-label="Andar para trás">↓</button>
+          <button type="button" class="bg-cream text-ink py-3" data-direction="right" aria-label="Andar para a direita da tela">→</button>
         </div>
       </div>
     </div>
@@ -323,7 +324,8 @@ const renderGame = (): void => {
     },
     onMarket: () => { void openMarketPanel(); },
     onConnectionPrompt: (text) => { const target = root.querySelector("#hud-bottom-message"); if (target) target.textContent = text || "Chegue perto de uma produção para ver seu estado."; },
-    onMessage: message
+    onMessage: message,
+    onTime: (label) => { const target = root.querySelector("#time-of-day"); if (target) target.textContent = label; }
   });
 
   root.querySelector("#open-origin-shop")?.addEventListener("click", () => { void openShopPanel(); });
