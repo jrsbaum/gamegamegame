@@ -202,7 +202,8 @@ export const BRIDGE = {
   rise: 1.75
 };
 
-const riversideCenter = (ty: number): number => riverCenterTile(ty) - 3.6;
+/** The bank path swings west around the bridgehead and meets the road clear of the railings. */
+const riversideCenter = (ty: number): number => riverCenterTile(ty) - 3.6 - 2 * Math.exp(-(((ty - 29.5) / 1.8) ** 2));
 
 const ROAD_SPURS: Array<[number, number, number, number]> = [
   [8.6, 18.3, 9.4, 23.5], [9.4, 23.5, 10.2, 28.8],
