@@ -242,7 +242,7 @@ const landHeight = (wx: number, wz: number, tx: number, ty: number): number => {
   const riverDx = Math.abs(wx - riverCenterWorld(wz));
   const meadow = (fbm(wx * 0.011 + 3.1, wz * 0.011 - 1.7, 4) - 0.5) * 1.7 + Math.min(riverDx, 110) * 0.012 + 0.55;
   const outside = Math.max(0, sd);
-  const wall = 1.1 * smoothstep(-8, 5, sd) + 17 * (1 - Math.exp(-outside / 30)) + outside * 0.15;
+  const wall = 1.1 * smoothstep(-8, 5, sd) + 17 * (1 - Math.exp(-outside / 30)) + Math.min(outside, 400) * 0.15 + Math.max(0, outside - 400) * 0.04;
   const peaks = ridged(wx * 0.0042 + 11.3, wz * 0.0042 - 4.2) * 150 * smoothstep(25, 320, outside);
   const lumps = (fbm(wx * 0.024 - 7.7, wz * 0.024 + 2.2, 3) - 0.45) * 9 * smoothstep(2, 40, outside);
   let land = meadow + wall + peaks + lumps;

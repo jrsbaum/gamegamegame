@@ -7,6 +7,8 @@ export const LAYER_MAIN = 0;
 export const LAYER_WATER = 1;
 /** Opaque geometry the mirror skips (grass, small ground cover, the player's feet dust). */
 export const LAYER_NO_REFLECT = 2;
+/** Cheap stand-ins drawn only by the water mirror (the coarse copy of the near terrain). */
+export const LAYER_MIRROR = 3;
 
 export const MAX_LAMPS = 8;
 
