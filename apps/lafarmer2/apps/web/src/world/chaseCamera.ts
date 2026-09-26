@@ -54,8 +54,8 @@ export type ChaseCameraOptions = {
   distance?: number;
   /** Ground height; the cached valley ground by default. */
   ground?: (x: number, z: number) => number;
-  /** Top of a solid (building, rock) covering (x, z), or undefined for open air. */
-  solidTop?: (x: number, z: number) => number | undefined;
+  /** True inside a building, rock or roof; the arm stops short of it but may pass under eaves. */
+  solid?: (x: number, y: number, z: number) => boolean;
 };
 
 export type ChaseCamera = {
@@ -89,7 +89,7 @@ const approach = (value: number, goal: number, rate: number, dt: number): number
 
 export const createChaseCamera = (options: ChaseCameraOptions = {}): ChaseCamera => {
   const ground = options.ground ?? groundHeight;
-  const solidTop = options.solidTop;
+  const solid = options.solid;
   let yaw = options.yaw ?? 0;
   let pitch = THREE.MathUtils.clamp(options.pitch ?? DEFAULT_PITCH, MIN_PITCH, MAX_PITCH);
   let distance = THREE.MathUtils.clamp(options.distance ?? DEFAULT_DISTANCE, MIN_DISTANCE, MAX_DISTANCE);
@@ -108,10 +108,13 @@ export const createChaseCamera = (options: ChaseCameraOptions = {}): ChaseCamera
 
   /** Longest free arm along the view ray before it would enter a solid. */
   const freeArm = (from: THREE.Vector3, dirX: number, dirY: number, dirZ: number, length: number): number => {
-    if (!solidTop) return length;
-    for (let along = 0.5; along <= length; along += 0.3) {
-      const top = solidTop(from.x + dirX * along, from.z + dirZ * along);
-      if (top !== undefined && from.y + dirY * along < top + SOLID_MARGIN) return Math.max(ARM_MIN, along - SOLID_MARGIN);
+    if (!solid) return length;
+    for (let along = 0.5; along < length + 0.3; along += 0.3) {
+      const reach = Math.min(along, length);
+      const x = from.x + dirX * reach;
+      const y = from.y + dirY * reach;
+      const z = from.z + dirZ * reach;
+      if (solid(x, y, z) || solid(x, y - SOLID_MARGIN, z) || solid(x, y + SOLID_MARGIN, z)) return Math.max(ARM_MIN, reach - SOLID_MARGIN);
     }
     return length;
   };

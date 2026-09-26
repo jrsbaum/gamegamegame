@@ -68,17 +68,27 @@ describe("createChaseCamera", () => {
   });
 
   it("shortens the arm in front of a building instead of entering it", () => {
-    const wall = (x: number, z: number): number | undefined => (x < -3 && x > -12 && Math.abs(z) < 6 ? FLAT + 7 : undefined);
+    const wall = (x: number, y: number, z: number): boolean => x < -3 && x > -12 && Math.abs(z) < 6 && y < FLAT + 7;
     const feet = { x: 0, y: FLAT, z: 0 };
-    const { camera } = settle({ yaw: Math.PI / 2, ground: flat, solidTop: wall }, feet);
+    const { camera } = settle({ yaw: Math.PI / 2, ground: flat, solid: wall }, feet);
     expect(camera.position.x).toBeGreaterThan(-3);
     expect(Math.hypot(camera.position.x - feet.x, camera.position.z - feet.z)).toBeLessThan(DEFAULT_DISTANCE - 2);
   });
 
+  it("stays at full length under an eave the arm passes beneath, and pulls in when it would cross it", () => {
+    const eave = (lowest: number) => (x: number, y: number): boolean => x < -2 && x > -12 && y > FLAT + lowest && y < FLAT + lowest + 0.6;
+    const feet = { x: 0, y: FLAT, z: 0 };
+    const under = settle({ yaw: Math.PI / 2, ground: flat, solid: eave(5) }, feet);
+    expect(feet.x - under.camera.position.x).toBeCloseTo(DEFAULT_DISTANCE * Math.cos(DEFAULT_PITCH), 1);
+    const through = settle({ yaw: Math.PI / 2, ground: flat, solid: eave(3.2) }, feet);
+    expect(feet.x - through.camera.position.x).toBeLessThan(DEFAULT_DISTANCE * Math.cos(DEFAULT_PITCH) - 1.5);
+    expect(through.camera.position.y).toBeLessThan(FLAT + 3.2);
+  });
+
   it("lets the arm grow back once the building is out of the way", () => {
     let walled = true;
-    const wall = (x: number): number | undefined => (walled && x < -3 && x > -12 ? FLAT + 7 : undefined);
-    const rig = createChaseCamera({ yaw: Math.PI / 2, ground: flat, solidTop: wall });
+    const wall = (x: number): boolean => walled && x < -3 && x > -12;
+    const rig = createChaseCamera({ yaw: Math.PI / 2, ground: flat, solid: wall });
     const camera = new THREE.PerspectiveCamera();
     const feet = { x: 0, y: FLAT, z: 0 };
     for (let frame = 0; frame < 60; frame += 1) rig.update(camera, feet, { x: 0, z: 0 }, 1 / 60);
