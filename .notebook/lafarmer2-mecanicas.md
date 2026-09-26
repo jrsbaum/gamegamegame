@@ -54,10 +54,11 @@ Vaca: oferta `feed` na loja `dinosaurs`; `adopt("cow")` exige `animal_pen` + ra�
 
 ## Movimento no vale 3D
 
-Cliente: `apps/lafarmer2/apps/web/src/world/WorldView.ts` + `movement.ts:chooseWalk()`.
-Servidor: `apps/lafarmer2/apps/server/src/game-service.ts:GameService.move()` continua 1 tile, ou 2 no sprint, e recusa água/obstáculo/estrutura.
-Spawn: `PLAYER_SPAWN` em `packages/content/src/index.ts` — (20, 12). O tile (8, 8) encosta nas árvores (9, 7), (10, 7) e (11, 8); o terceiro passo a leste para.
+Cliente: `WorldView.ts` usa `controller.ts:stepWalker()` e `chaseCamera.ts`. Cada tile que o centro atravessa vira um `move` de 1 passo (`sprint` fica no cliente). O servidor ainda anda 1 tile, ou 2 se `sprint`, e não recusa o passo: se o primeiro tile está bloqueado, `move_ack` volta com a posição antiga.
+Spawn: `PLAYER_SPAWN` em `packages/content/src/index.ts` — (20, 12). O tile (8, 8) encosta nas árvores (9, 7), (10, 7) e (11, 8).
 
-A câmera não pode mirar o coração (42, 30). Isso empurra o enquadramento para fora da fazenda, o raio contra o morro enfia a câmera no terreno e o quadro vai para o preto. Yaw fica atrás do fazendeiro; W é o eixo da câmera.
+A câmera nasce olhando para o leste (`INITIAL_CAMERA_YAW`), atrás do fazendeiro. W segue o eixo da câmera. O braço encolhe em sólido e sobe no terreno; não mire o yaw inicial no coração (42, 30).
+
+Estrutura própria bloqueia o corpo mesmo com o fazendeiro em cima (dá para sair). Estrutura alheia bloqueia só por fora. Colheita de tomate (`cycleSeconds` null) some no `farm.harvested`; a laranjeira espera o snapshot. `valley.ts` e `actors.ts` saíram; `movement.ts` fica por causa de `chooseWalk` e do tipo `Direction`.
 
 Updated: 2026-09-26
