@@ -13,7 +13,8 @@ import { after, withGlobals } from "./shared";
 
 export type ArchKey =
   | "timber" | "planks" | "lacquer" | "black" | "plaster" | "mud" | "stone" | "granite" | "rock"
-  | "thatch" | "tiles" | "bronze" | "gold" | "paper" | "glow" | "noren" | "rope" | "shide" | "bamboo" | "chochin" | "fruit";
+  | "thatch" | "tiles" | "bronze" | "gold" | "paper" | "glow" | "noren" | "rope" | "shide" | "bamboo" | "chochin" | "fruit"
+  | "bark";
 
 export type Tint = readonly [number, number, number];
 const WHITE: Tint = [1, 1, 1];
@@ -270,7 +271,8 @@ export const archMaterials = (): ArchMaterials => {
     shide: tintMaterial(linear(0.9, 0.88, 0.84), { roughness: 0.9, side: THREE.DoubleSide, vertexColors: true }),
     bamboo: surfaceMaterial(SURFACES.bamboo, { vertexColors: true }),
     chochin: tintMaterial(linear(0.55, 0.08, 0.04), { roughness: 0.85, side: THREE.DoubleSide, nightGlow: linear(1, 0.3, 0.1), glowStrength: 3.2, vertexColors: true }),
-    fruit: tintMaterial(linear(1, 1, 1), { roughness: 0.45, vertexColors: true })
+    fruit: tintMaterial(linear(1, 1, 1), { roughness: 0.45, vertexColors: true }),
+    bark: surfaceMaterial(SURFACES.cedarBark, { color: linear(0.5, 0.47, 0.45), roughness: 0.95, normalScale: 1.3, vertexColors: true })
   };
   return shared;
 };
