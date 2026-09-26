@@ -22,4 +22,20 @@ describe("bare spots", () => {
     expect(sampleGroundMask(-30.4, -30).bare).toBe(1);
     clearBareSpots("b");
   });
+
+  it("shows trampled earth only in dirt spots, fading toward their edge", () => {
+    const x = -40;
+    const z = -20;
+    const before = sampleGroundMask(x, z);
+    setBareSpots("grass", [{ x, z, radius: 1 }]);
+    expect(sampleGroundMask(x, z).path).toBe(before.path);
+    clearBareSpots("grass");
+    setBareSpots("pen", [{ x, z, radius: 3, dirt: true }]);
+    expect(sampleGroundMask(x, z)).toMatchObject({ path: 1, bare: 1 });
+    const edge = sampleGroundMask(x + 2.4, z).path;
+    expect(edge).toBeGreaterThan(0);
+    expect(edge).toBeLessThan(1);
+    clearBareSpots("pen");
+    expect(sampleGroundMask(x, z)).toEqual(before);
+  });
 });

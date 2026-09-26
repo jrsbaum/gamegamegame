@@ -11,8 +11,8 @@ const ROWS = MASK_RECT.depth * TEXELS_PER_UNIT;
 
 /*
  * Ground state shared by the terrain and the grass, sampled on the GPU with `groundMaskAt(xz)`
- * from the shader prelude. R: dirt path, G: tilled soil, B: bare ground where grass must not grow
- * (paths, water, building and rock footprints, tilled soil). A is always 255.
+ * from the shader prelude. R: dirt path or trampled earth, G: tilled soil, B: bare ground where grass
+ * must not grow (paths, water, building and rock footprints, tilled soil). A is always 255.
  */
 
 const smoothstep = (edge0: number, edge1: number, value: number): number => {
@@ -34,6 +34,7 @@ const BUILDINGS = WORLD_OBSTACLES.filter((obstacle) => obstacle.kind === "barn" 
 const ROCKS = WORLD_OBSTACLES.filter((obstacle) => obstacle.kind === "rock");
 
 const data = new Uint8Array(COLUMNS * ROWS * 4);
+const staticPath = new Uint8Array(COLUMNS * ROWS);
 const staticBare = new Uint8Array(COLUMNS * ROWS);
 const tilledByKey = new Map<string, Array<[number, number]>>();
 
@@ -66,8 +67,9 @@ const bakeStatic = (): void => {
       }
       if (wx > BRIDGE.x0 && wx < BRIDGE.x1 && wz > BRIDGE.z0 && wz < BRIDGE.z1) bare = 1;
       const index = row * COLUMNS + column;
+      staticPath[index] = Math.round(path * 255);
       staticBare[index] = Math.round(bare * 255);
-      data[index * 4] = Math.round(path * 255);
+      data[index * 4] = staticPath[index];
       data[index * 4 + 1] = 0;
       data[index * 4 + 2] = staticBare[index];
       data[index * 4 + 3] = 255;
@@ -98,9 +100,13 @@ const texelRange = (worldMin: number, worldMax: number, origin: number, limit: n
   Math.min(limit - 1, Math.ceil((worldMax - origin) * TEXELS_PER_UNIT))
 ];
 
-/** A round patch in world units where grass must not grow, such as the mulch under a tree. */
-export type BareSpot = { x: number; z: number; radius: number };
+/**
+ * A round patch in world units where grass must not grow, such as the mulch under a tree.
+ * `dirt` also shows trampled earth there, fading out over DIRT_FADE toward the radius.
+ */
+export type BareSpot = { x: number; z: number; radius: number; dirt?: boolean };
 const spotsByKey = new Map<string, BareSpot[]>();
+const DIRT_FADE = 1.2;
 
 type WorldRect = { x0: number; x1: number; z0: number; z1: number };
 
@@ -108,7 +114,7 @@ const tileRect = (x: number, y: number): WorldRect => ({ x0: tileToWorldX(x - 0.
 
 const spotRect = (spot: BareSpot): WorldRect => ({ x0: spot.x - spot.radius, x1: spot.x + spot.radius, z0: spot.z - spot.radius, z1: spot.z + spot.radius });
 
-/** Recomputes the tilled and bare channels inside `rects` from every key still registered. */
+/** Recomputes the dirt, tilled and bare channels inside `rects` from every key still registered. */
 const refresh = (rects: readonly WorldRect[]): void => {
   const covered = new Set<string>();
   for (const list of tilledByKey.values()) for (const [x, y] of list) covered.add(`${x},${y}`);
@@ -123,8 +129,15 @@ const refresh = (rects: readonly WorldRect[]): void => {
         const { x: tx, y: ty } = worldToTile(wx, wz);
         const tilled = covered.has(`${Math.round(tx)},${Math.round(ty)}`) ? 255 : 0;
         let spotted = 0;
-        for (const spot of nearby) spotted = Math.max(spotted, 1 - smoothstep(spot.radius - 0.35, spot.radius, Math.hypot(wx - spot.x, wz - spot.z)));
+        let dirt = 0;
+        for (const spot of nearby) {
+          const distance = Math.hypot(wx - spot.x, wz - spot.z);
+          const value = 1 - smoothstep(spot.radius - (spot.dirt ? DIRT_FADE : 0.35), spot.radius, distance);
+          spotted = Math.max(spotted, value);
+          if (spot.dirt) dirt = Math.max(dirt, value);
+        }
         const index = row * COLUMNS + column;
+        data[index * 4] = Math.max(staticPath[index], Math.round(dirt * 255));
         data[index * 4 + 1] = tilled;
         data[index * 4 + 2] = Math.max(staticBare[index], tilled, Math.round(spotted * 255));
       }
