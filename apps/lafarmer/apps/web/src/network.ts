@@ -1,3 +1,5 @@
+export type Direction = 'up' | 'up-right' | 'right' | 'down-right' | 'down' | 'down-left' | 'left' | 'up-left';
+
 export interface PlayerProfile {
   nick: string;
   name: string;
@@ -21,6 +23,11 @@ export type WorldPresence = {
   position: { x: number; y: number };
   online: boolean;
 };
+
+export type HomeFurniture = { id: string; type: import('@lafarmer/content-client').HomeFurnitureType; x: number; y: number };
+export type HomeOccupant = { playerId: string; name: string; appearance: { clothing: PlayerProfile['outfit']; hair: PlayerProfile['hair'] }; position: { x: number; y: number }; pose: 'working' | 'resting' | null };
+export type HomeView = { ownerId: string; ownerName: string; regionId: string; doorOpen: boolean; furniture: HomeFurniture[] };
+export type HomeSnapshot = { home: HomeView; occupants: HomeOccupant[] };
 
 export type ServerPlayer = {
   id: string;
@@ -135,7 +142,7 @@ export class RealtimeClient {
       socket.addEventListener('message', (event) => {
         try {
           const message = JSON.parse(String(event.data)) as Record<string, unknown>;
-          if (message.type === 'move_ack' && typeof message.actionId === 'string') {
+          if ((message.type === 'move_ack' || message.type === 'home.move_ack') && typeof message.actionId === 'string') {
             const sentAt = this.moveSentAt.get(message.actionId);
             if (sentAt) { this.latencyMs = Date.now() - sentAt; this.moveSentAt.delete(message.actionId); }
           }
@@ -157,7 +164,7 @@ export class RealtimeClient {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
     this.socket.send(JSON.stringify({ type, payload })); return true;
   }
-  move(direction: 'up' | 'down' | 'left' | 'right', sprint = false): string | false {
+  move(direction: Direction, sprint = false): string | false {
     const actionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     if (!this.send('move', { actionId, direction, sprint })) return false;
     this.moveSentAt.set(actionId, Date.now());
@@ -166,6 +173,11 @@ export class RealtimeClient {
   enterRegion(regionId: string): boolean { return this.send('world.region.enter', { regionId }); }
   requestSnapshot(): boolean { return this.send('snapshot.get'); }
   action(type: string, payload: Record<string, unknown> = {}): boolean { return this.send(type, payload); }
+  enterHome(regionId: string): boolean { return this.send('home.enter', { regionId }); }
+  exitHome(): boolean { return this.send('home.exit'); }
+  setHomeDoor(open: boolean): boolean { return this.send('home.door.set', { open }); }
+  moveHomeFurniture(furnitureId: string, x: number, y: number): boolean { return this.send('home.furniture.move', { furnitureId, x, y }); }
+  interactHome(furnitureId: string): boolean { return this.send('home.interact', { furnitureId }); }
   close(): void {
     this.closedByUser = true;
     if (this.retryTimer !== undefined) { window.clearTimeout(this.retryTimer); this.retryTimer = undefined; }

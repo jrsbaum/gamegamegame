@@ -1,4 +1,4 @@
-import type { Account, FarmItem, FarmStructure, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
+import type { Account, FarmItem, FarmStructure, HomeRecord, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
 
 export type MarketListingResult = {
   listing: MarketListing;
@@ -49,6 +49,13 @@ export interface StructureRepository {
   update(structure: FarmStructure): Promise<void>;
 }
 
+export interface HomeRepository {
+  findByOwnerId(ownerId: string): Promise<HomeRecord | undefined>;
+  findByRegionId(regionId: string): Promise<HomeRecord | undefined>;
+  ensure(home: HomeRecord): Promise<HomeRecord>;
+  update(home: HomeRecord): Promise<void>;
+}
+
 export interface MarketRepository {
   listActive(): Promise<MarketListing[]>;
   findById(id: string): Promise<MarketListing | undefined>;
@@ -69,6 +76,7 @@ export type RepositoryBundle = {
   players: PlayerRepository;
   farm: FarmRepository;
   structures: StructureRepository;
+  homes: HomeRepository;
   market: MarketRepository;
   wallet: WalletRepository;
 };

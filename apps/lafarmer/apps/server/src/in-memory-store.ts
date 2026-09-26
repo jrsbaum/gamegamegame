@@ -1,5 +1,5 @@
-import type { Account, FarmItem, FarmStructure, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
-import type { AccountRepository, FarmRepository, MarketListingResult, MarketPurchaseResult, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, StructureRepository, WalletRepository } from "./repositories.js";
+import type { Account, FarmItem, FarmStructure, HomeRecord, MarketListing, PlayerState, Session, WalletEntry } from "./domain.js";
+import type { AccountRepository, FarmRepository, HomeRepository, MarketListingResult, MarketPurchaseResult, MarketRepository, PlayerRepository, RepositoryBundle, SessionRepository, StructureRepository, WalletRepository } from "./repositories.js";
 
 class InMemoryAccounts implements AccountRepository {
   private readonly byId = new Map<string, Account>();
@@ -93,6 +93,35 @@ class InMemoryStructures implements StructureRepository {
   async update(structure: FarmStructure): Promise<void> { this.structures.set(structure.id, structure); }
 }
 
+class InMemoryHomes implements HomeRepository {
+  private readonly byOwner = new Map<string, HomeRecord>();
+  private readonly byRegion = new Map<string, HomeRecord>();
+  async findByOwnerId(ownerId: string): Promise<HomeRecord | undefined> { const home = this.byOwner.get(ownerId); return home && cloneHome(home); }
+  async findByRegionId(regionId: string): Promise<HomeRecord | undefined> { const home = this.byRegion.get(regionId); return home && cloneHome(home); }
+  async ensure(home: HomeRecord): Promise<HomeRecord> {
+    const existing = this.byOwner.get(home.ownerId);
+    if (existing) {
+      if (existing.regionId !== home.regionId) throw new Error("home_region_immutable");
+      return cloneHome(existing);
+    }
+    if (this.byRegion.has(home.regionId)) throw new Error("home_region_taken");
+    const stored = cloneHome(home);
+    this.byOwner.set(stored.ownerId, stored);
+    this.byRegion.set(stored.regionId, stored);
+    return cloneHome(stored);
+  }
+  async update(home: HomeRecord): Promise<void> {
+    const existing = this.byOwner.get(home.ownerId);
+    if (!existing) throw new Error("home_not_found");
+    if (existing.regionId !== home.regionId) throw new Error("home_region_immutable");
+    const stored = cloneHome(home);
+    this.byOwner.set(stored.ownerId, stored);
+    this.byRegion.set(stored.regionId, stored);
+  }
+}
+
+function cloneHome(home: HomeRecord): HomeRecord { return { ...home, furniture: home.furniture.map((item) => ({ ...item })) }; }
+
 class InMemoryMarket implements MarketRepository {
   private readonly listings = new Map<string, MarketListing>();
   private readonly purchases = new Map<string, MarketPurchaseResult>();
@@ -170,6 +199,7 @@ export function createInMemoryRepositories(): RepositoryBundle {
     players,
     farm: new InMemoryFarm(),
     structures: new InMemoryStructures(),
+    homes: new InMemoryHomes(),
     market: new InMemoryMarket(players),
     wallet: new InMemoryWallet()
   };

@@ -185,6 +185,75 @@ describe("LaFarmer server", () => {
     second.close();
   });
 
+  it("keeps house presence and radio messages isolated while the owner closes the door", async () => {
+    const repositories = createInMemoryRepositories();
+    const app = createApp({ repositories });
+    apps.push(app);
+    const owner = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "HomeOwner", password: testPassword, credentialsSaved: true } });
+    const guest = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "HomeGuest", password: testPassword, credentialsSaved: true } });
+    const outside = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "HomeOutside", password: testPassword, credentialsSaved: true } });
+    const profiles = [
+      { result: owner, regionId: "region-center" },
+      { result: guest, regionId: "region-north" },
+      { result: outside, regionId: "region-north-east" }
+    ];
+    for (const { result, regionId } of profiles) {
+      const player = await repositories.players.findByAccountId(result.json().player.accountId);
+      if (!player) throw new Error("home test player missing");
+      await repositories.players.update({ ...player, homeRegionId: regionId, currentRegionId: "region-center", position: { x: 30, y: 47 } });
+    }
+
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("server did not expose a port");
+    const ownerSocket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${owner.json().token}`);
+    const guestSocket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${guest.json().token}`);
+    const outsideSocket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${outside.json().token}`);
+    const ownerMessages: Record<string, any>[] = [];
+    const guestMessages: Record<string, any>[] = [];
+    const outsideMessages: Record<string, any>[] = [];
+    ownerSocket.on("message", (data) => ownerMessages.push(JSON.parse(data.toString())));
+    guestSocket.on("message", (data) => guestMessages.push(JSON.parse(data.toString())));
+    outsideSocket.on("message", (data) => outsideMessages.push(JSON.parse(data.toString())));
+    await Promise.all([openSocket(ownerSocket), openSocket(guestSocket), openSocket(outsideSocket)]);
+    await waitFor(() => ownerMessages.some((message) => message.type === "hello") && guestMessages.some((message) => message.type === "hello") && outsideMessages.some((message) => message.type === "hello"));
+
+    ownerSocket.send(JSON.stringify({ type: "home.enter", regionId: "region-center" }));
+    await waitFor(() => ownerMessages.some((message) => message.type === "home.entered"));
+    guestSocket.send(JSON.stringify({ type: "home.enter", regionId: "region-center" }));
+    await waitFor(() => guestMessages.some((message) => message.type === "home.entered") && ownerMessages.some((message) => message.type === "home.player.joined"));
+    guestSocket.send(JSON.stringify({ type: "farm.structure.build", payload: { type: "field" } }));
+    await waitFor(() => guestMessages.some((message) => message.type === "error" && message.code === "not_at_world_location"));
+
+    ownerSocket.send(JSON.stringify({ type: "home.door.set", open: false }));
+    await waitFor(() => guestMessages.some((message) => message.type === "home.updated" && message.home?.doorOpen === false) && outsideMessages.some((message) => message.type === "home.door.updated" && message.home?.doorOpen === false));
+    outsideSocket.send(JSON.stringify({ type: "home.enter", regionId: "region-center" }));
+    await waitFor(() => outsideMessages.some((message) => message.type === "error" && message.code === "home_closed"));
+
+    const route: string[] = ["left", "left", "up", "up", "left", "left", "up", "up", "left", "left", "left", "up", "up", "right", "right", "left", "left", "up", "up", "up", "up", "right"];
+    for (let index = 0; index < route.length; index += 1) {
+      const actionId = `house-radio-${index}`;
+      guestSocket.send(JSON.stringify({ type: "move", actionId, direction: route[index] }));
+      await waitFor(() => guestMessages.some((message) => message.type === "home.move_ack" && message.actionId === actionId));
+    }
+    guestSocket.send(JSON.stringify({ type: "home.interact", furnitureId: "radio" }));
+    await waitFor(() => guestMessages.some((message) => message.type === "home.radio.play") && ownerMessages.some((message) => message.type === "home.radio.play"));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(outsideMessages.some((message) => message.type === "home.radio.play" || message.type === "home.player.moved")).toBe(false);
+
+    await closeSocket(guestSocket);
+    await waitFor(() => ownerMessages.some((message) => message.type === "home.player.left" && message.playerId === guest.json().player.id));
+    const reconnected = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${guest.json().token}`);
+    const reconnectedMessages: Record<string, any>[] = [];
+    reconnected.on("message", (data) => reconnectedMessages.push(JSON.parse(data.toString())));
+    await openSocket(reconnected);
+    await waitFor(() => reconnectedMessages.some((message) => message.type === "hello"));
+    const reconnectedHello = reconnectedMessages.find((message) => message.type === "hello");
+    expect(reconnectedHello?.snapshot.player.currentRegionId).toBe("region-north");
+    expect(reconnectedHello?.snapshot.player.position).toEqual({ x: 30, y: 47 });
+    await Promise.all([closeSocket(ownerSocket), closeSocket(outsideSocket), closeSocket(reconnected)]);
+  });
+
   it("keeps online and offline wallet accrual on the same minute boundary", async () => {
     let now = 1_700_000_000_000;
     const repositories = createInMemoryRepositories();
