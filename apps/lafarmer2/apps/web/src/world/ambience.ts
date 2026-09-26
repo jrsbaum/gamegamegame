@@ -18,8 +18,9 @@ export type AmbienceOptions = {
 };
 
 const CROWN_SLOTS = 12;
-const PETALS_PER_CROWN = 90;
-const CROWN_RADIUS = 3.2;
+const PETALS_PER_CROWN = 120;
+/** How far blossoms reach from a crown centre; keep in step with the canopies grown in trees.ts. */
+const CROWN_RADIUS = 5.5;
 const CROWN_FADE_SECONDS = 1.6;
 const CROWN_REFRESH_SECONDS = 0.5;
 const AIR_PETALS = 650;
@@ -161,15 +162,16 @@ void main() {
     int slot = int(aKind.y + 0.5);
     vec4 crown = uCrowns[slot];
     float fall = 0.7 + aSeed.w * 0.45;
-    float duration = (max(crown.y - crown.w, 1.0) + ${float(CROWN_RADIUS * 0.5)}) / fall;
+    float duration = (max(crown.y - crown.w, 1.0) + ${float(CROWN_RADIUS * 0.25)}) / fall;
     float cycle = duration + 2.4;
     float clock = uTime + aSeed.x * 97.0;
     float life = mod(clock, cycle);
     float lap = floor(clock / cycle);
+    // the canopy hides whatever starts inside it, so petals leave from its rim and underside
     float angle = hash12(vec2(lap, aSeed.y * 131.0)) * 6.2832;
-    float radius = sqrt(hash12(vec2(lap * 1.7, aSeed.z * 173.0))) * ${float(CROWN_RADIUS)};
-    float lift = hash12(vec2(lap * 2.3, aSeed.w * 197.0)) - 0.6;
-    vec3 start = crown.xyz + vec3(cos(angle) * radius, lift * ${float(CROWN_RADIUS * 0.8)}, sin(angle) * radius);
+    float radius = (0.7 + 0.3 * sqrt(hash12(vec2(lap * 1.7, aSeed.z * 173.0)))) * ${float(CROWN_RADIUS)};
+    float lift = mix(-0.35, 0.25, hash12(vec2(lap * 2.3, aSeed.w * 197.0))) * ${float(CROWN_RADIUS)};
+    vec3 start = crown.xyz + vec3(cos(angle) * radius, lift, sin(angle) * radius);
     float airborne = min(life, duration);
     float k = airborne / duration;
     center = start + windDir * airborne * (0.5 * uWind.z + windGust(start) * 0.9);
@@ -205,6 +207,8 @@ void main() {
     R = rotateAxis(vec3(0.0, 1.0, 0.0), aSeed.z * 6.2832 + uTime * (aSeed.w - 0.5) * 0.5) * rotateAxis(vec3(1.0, 0.0, 0.0), 1.5708 + (aSeed.y - 0.5) * 0.4);
     center = vec3(x, ${float(WATER_LEVEL + 0.07)} + sin(uTime * 2.0 + aSeed.x * 40.0) * 0.01, z);
   }
+  // no depth of field softens a petal brushing past the lens, so it shrinks away instead
+  size *= smoothstep(0.5, 1.5, distance(center, cameraPosition));
   vec3 world = center + R * (position * size);
   vWorld = world;
   vUv = uv;
@@ -648,9 +652,9 @@ export const createAmbience = ({ blossomTrees }: AmbienceOptions): Ambience => {
   const crowns = blossomTrees.map((crown) => crown.clone());
   const crownFloors = crowns.map((crown) => {
     let floor = groundHeight(crown.x, crown.z);
-    for (let side = 0; side < 4; side += 1) {
-      const angle = (side * Math.PI) / 2;
-      floor = Math.min(floor, groundHeight(crown.x + Math.cos(angle) * 3.5, crown.z + Math.sin(angle) * 3.5));
+    for (let side = 0; side < 8; side += 1) {
+      const angle = (side * Math.PI) / 4;
+      floor = Math.min(floor, groundHeight(crown.x + Math.cos(angle) * CROWN_RADIUS, crown.z + Math.sin(angle) * CROWN_RADIUS));
     }
     return Math.max(floor, WATER_LEVEL) + 0.03;
   });
