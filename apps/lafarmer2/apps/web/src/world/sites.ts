@@ -85,6 +85,10 @@ export const solidTest = (solids: readonly Solid[]) => (x: number, y: number, z:
 
 export type LightSpec = { position: THREE.Vector3; intensity: number; color: number };
 
+/** Candle-like unsteadiness of a lantern flame, around 1. */
+export const flicker = (time: number, phase: number): number =>
+  0.92 + 0.05 * Math.sin(time * 7.3 + phase) + 0.03 * Math.sin(time * 17.9 + phase * 1.7);
+
 /** One built thing: its pieces (merged per material), lights, colliders and camera solids. */
 export class Site {
   readonly parts: Parts;

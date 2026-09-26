@@ -7,7 +7,7 @@ import type { Circle } from "./controller";
 import { atlasCell, createRng, strawTexture, tomatoLeafTexture, type Rng } from "./foliage";
 import { clearBareSpots, clearTilledTiles, setBareSpots, setTilledTiles } from "./groundMask";
 import { cycleProgress, growthProgress, type GrowthProgress } from "./growth";
-import { groundHeight, tileToWorldX, tileToWorldZ, valueNoise } from "./height";
+import { groundHeight, hashString, tileToWorldX, tileToWorldZ, valueNoise } from "./height";
 import { surfaceMaterial, tintMaterial } from "./materials";
 import { withGlobals } from "./shared";
 import { buildTrees, leafMaterial, type TreeBuild } from "./trees";
@@ -800,20 +800,11 @@ const createOrangeTree = (id: string, tile: { x: number; y: number }, seed: numb
 
 /* ------------------------------------------------------------------ factory */
 
-const hashId = (id: string): number => {
-  let hash = 2166136261;
-  for (let index = 0; index < id.length; index += 1) {
-    hash ^= id.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-};
-
 /** The crop for a farm item on its tile, already grown to `state`; undefined for content that is not a crop. */
 export const createCrop = (contentId: string, id: string, tile: { x: number; y: number }, state: CropState, now: number): Crop | undefined => {
   const definition = getContentDefinition(contentId);
   if (!definition || definition.kind !== "crop") return undefined;
-  const seed = hashId(id);
+  const seed = hashString(id);
   if (contentId === "tomato") {
     const bed = createTomatoBed(id, tile, definition.stages, seed);
     let shown = "";

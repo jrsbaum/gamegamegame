@@ -24,7 +24,7 @@ import {
 import type { Circle } from "./controller";
 import { BRIDGE, WATER_LEVEL, bridgeDeckHeight, createRandom, groundHeight, tileToWorldX, tileToWorldZ } from "./height";
 import { addLamp, removeLamp, type Lamp } from "./shared";
-import { Site, WALL_INSET, boxSolid, columnSolid, ellipsoidSolid, groundRange, plinth, roofSolid, solidTest, type Rect, type Solid } from "./sites";
+import { Site, WALL_INSET, boxSolid, columnSolid, ellipsoidSolid, flicker, groundRange, plinth, roofSolid, solidTest, type Rect, type Solid } from "./sites";
 import type { Clearing } from "./vegetationLayout";
 
 /*
@@ -636,9 +636,7 @@ export const createLandmarks = (options: LandmarkOptions = {}): Landmarks => {
   const solid = solidTest(solids);
 
   const update = (time: number): void => {
-    for (const entry of lamps) {
-      entry.lamp.intensity = entry.base * (0.92 + 0.05 * Math.sin(time * 7.3 + entry.phase) + 0.03 * Math.sin(time * 17.9 + entry.phase * 1.7));
-    }
+    for (const entry of lamps) entry.lamp.intensity = entry.base * flicker(time, entry.phase);
   };
 
   const dispose = (): void => {

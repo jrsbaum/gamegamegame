@@ -87,6 +87,16 @@ export const ridged = (x: number, y: number, octaves = 5): number => {
   return sum / norm;
 };
 
+/** FNV-1a hash of a string, to seed the look of things known only by id. */
+export const hashString = (text: string): number => {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
 /** Deterministic PRNG for placement. */
 export const createRandom = (seed: number): (() => number) => {
   let state = seed >>> 0 || 1;
