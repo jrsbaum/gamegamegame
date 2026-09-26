@@ -9,8 +9,8 @@ import type { Direction } from "./movement";
 
 export const BODY_RADIUS = 0.38;
 /** World units per second. */
-export const WALK_SPEED = 5.2;
-export const RUN_SPEED = 9;
+export const WALK_SPEED = 3.8;
+export const RUN_SPEED = 7.6;
 const ACCELERATION = 11;
 const BRAKING = 14;
 const TURN_RATE = 11;
