@@ -281,9 +281,10 @@ export const computeGroundHeight = (wx: number, wz: number): number => {
 
 /** Cached ground heights around the farm, one sample per world unit. */
 export const HEIGHT_CACHE = { x0: -170, z0: -140, size: 1, columns: 341, rows: 281 };
-let heightCache: Float32Array | undefined;
+let heightCache: Float32Array<ArrayBuffer> | undefined;
 
-const ensureHeightCache = (): Float32Array => {
+/** Row-major samples of HEIGHT_CACHE, computed on first use. Do not modify. */
+export const heightCacheData = (): Float32Array<ArrayBuffer> => {
   if (heightCache) return heightCache;
   const { x0, z0, size, columns, rows } = HEIGHT_CACHE;
   const cache = new Float32Array(columns * rows);
@@ -302,7 +303,7 @@ export const groundHeight = (wx: number, wz: number): number => {
   const gx = (wx - x0) / size;
   const gz = (wz - z0) / size;
   if (gx < 0 || gz < 0 || gx >= columns - 1 || gz >= rows - 1) return computeGroundHeight(wx, wz);
-  const cache = ensureHeightCache();
+  const cache = heightCacheData();
   const ix = Math.floor(gx);
   const iz = Math.floor(gz);
   const fx = gx - ix;
