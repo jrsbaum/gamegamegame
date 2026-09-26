@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { SURFACES, surfaceMaps, type SurfaceSlug } from "./assets";
-import { atlasCell, createRng, mapleClusterTexture, pineTuftTexture, sakuraClusterTexture, type Rng } from "./foliage";
+import { atlasCell, citrusClusterTexture, createRng, mapleClusterTexture, pineTuftTexture, sakuraClusterTexture, type Rng } from "./foliage";
 import { groundHeight, valueNoise } from "./height";
 import { TRANSLUCENCY, after, withGlobals } from "./shared";
 
@@ -9,8 +9,8 @@ const TAU = Math.PI * 2;
 const UP = new THREE.Vector3(0, 1, 0);
 const SIDE = new THREE.Vector3(1, 0, 0);
 
-export type TreeKind = "sakura" | "weeping" | "maple" | "pine";
-type Foliage = "blossom" | "maple" | "pads";
+export type TreeKind = "sakura" | "weeping" | "maple" | "pine" | "citrus";
+type Foliage = "blossom" | "maple" | "pads" | "citrus";
 
 /** Per-depth growth rules; index 0 is the trunk. */
 type Species = {
@@ -58,6 +58,12 @@ const SPECIES: Record<TreeKind, Species> = {
     start: [0.35, 0.35], angle: [1.25, 0.7], gnarl: [0.1, 0.16, 0.2], up: [0.03, 0.05, 0.09],
     droop: [0, 0.08, 0], spread: [0, 0.2, 0.1], segment: [0.4, 0.34, 0.26],
     leafDepth: 2, clusterStep: 0, cards: [0, 0], cardSize: [0, 0], foliage: "pads"
+  },
+  citrus: {
+    depth: 3, length: [0.85, 1.2, 0.8, 0.45], radius: 0.085, radiusRatio: [0.62, 0.6, 0.62], children: [4, 3, 3],
+    start: [0.62, 0.3, 0.3], angle: [0.72, 0.7, 0.78], gnarl: [0.1, 0.14, 0.16, 0.18], up: [0.05, 0.05, 0.04, 0.03],
+    droop: [0, 0.06, 0.12, 0.12], spread: [0, 0.4, 0.3, 0.2], segment: [0.24, 0.24, 0.2, 0.16],
+    leafDepth: 2, clusterStep: 0.2, cards: [4, 6], cardSize: [0.4, 0.6], foliage: "citrus"
   }
 };
 
@@ -376,18 +382,37 @@ export const leafMaterial = (map: THREE.Texture, key: string, look: LeafLook): T
   });
 };
 
-type TreeMaterials = Record<"sakuraBark" | "pineBark" | "blossom" | "maple" | "needle", THREE.MeshStandardMaterial>;
+type TreeMaterials = Record<"sakuraBark" | "pineBark" | "citrusBark" | "blossom" | "maple" | "needle", THREE.MeshStandardMaterial>;
 let materials: TreeMaterials | undefined;
+let citrusLeaves: THREE.MeshStandardMaterial | undefined;
 
 const treeMaterials = (): TreeMaterials => {
   materials ??= {
     sakuraBark: barkMaterial(SURFACES.sakuraBark, "sakura", 0xd8d2d4),
     pineBark: barkMaterial(SURFACES.cedarBark, "pine", 0xc4bcb6),
+    citrusBark: barkMaterial(SURFACES.sakuraBark, "citrus", 0x9a9484),
     blossom: leafMaterial(sakuraClusterTexture(), "blossom", { translucency: 1.3, flutter: 1, roughness: 0.72, warm: "vec3(1.12, 0.96, 0.92)", glow: 0.12 }),
     maple: leafMaterial(mapleClusterTexture(), "maple", { translucency: 0.85, flutter: 1, roughness: 0.72 }),
     needle: leafMaterial(pineTuftTexture(), "needle", { translucency: 0.45, flutter: 0.5, roughness: 0.8 })
   };
   return materials;
+};
+
+/** Built on the first orange tree, so the valley never pays for the atlas when no one grows citrus. */
+const citrusMaterial = (): THREE.MeshStandardMaterial =>
+  (citrusLeaves ??= leafMaterial(citrusClusterTexture(), "citrus", { translucency: 0.55, flutter: 0.7, roughness: 0.42 }));
+
+const barkFor = (foliage: Foliage, palette: TreeMaterials): [string, THREE.MeshStandardMaterial] => {
+  if (foliage === "pads") return ["bark-pine", palette.pineBark];
+  if (foliage === "citrus") return ["bark-citrus", palette.citrusBark];
+  return ["bark", palette.sakuraBark];
+};
+
+const foliageFor = (foliage: Foliage, palette: TreeMaterials): THREE.MeshStandardMaterial => {
+  if (foliage === "pads") return palette.needle;
+  if (foliage === "maple") return palette.maple;
+  if (foliage === "citrus") return citrusMaterial();
+  return palette.blossom;
 };
 
 export type TreePlacement = {
@@ -463,7 +488,9 @@ const foliageCards = (species: Species, skeleton: Skeleton, placement: TreePlace
       const shade = rng.range(0.9, 1.05);
       const tint: [number, number, number] = species.foliage === "maple"
         ? [shade * 0.8, shade * 0.8 * rng.range(0.85, 1.05), shade * 0.8]
-        : [blossomTint[0] * shade, blossomTint[1] * shade, blossomTint[2] * shade];
+        : species.foliage === "citrus"
+          ? [shade * 0.92, shade * rng.range(0.95, 1.05), shade * 0.88]
+          : [blossomTint[0] * shade, blossomTint[1] * shade, blossomTint[2] * shade];
       cards.push({
         position,
         normal,
@@ -507,18 +534,14 @@ export const buildTrees = (placements: readonly TreePlacement[], options: TreeBu
     const skeleton = growSkeleton(species, base, placement.scale, placement.lean, rng);
     const cell = `${Math.floor(placement.x / chunk)}:${Math.floor(placement.z / chunk)}`;
     const bark = barkGeometry(skeleton.branches, base, minTwigRadius);
-    const pine = species.foliage === "pads";
-    if (bark) add(cell, pine ? "bark-pine" : "bark", pine ? palette.pineBark : palette.sakuraBark, bark);
+    if (bark) add(cell, ...barkFor(species.foliage, palette), bark);
     const centre = new THREE.Vector3();
     skeleton.sprigs.forEach((sprig) => centre.add(sprig.position));
     centre.multiplyScalar(1 / Math.max(1, skeleton.sprigs.length));
     let crownRadius = 0.1;
     skeleton.sprigs.forEach((sprig) => { crownRadius = Math.max(crownRadius, sprig.position.distanceTo(centre)); });
     const cards = foliageCards(species, skeleton, placement, rng, centre);
-    if (cards.length) {
-      const material = species.foliage === "pads" ? palette.needle : species.foliage === "maple" ? palette.maple : palette.blossom;
-      add(cell, `foliage-${species.foliage}`, material, cardGeometry(cards, centre, crownRadius));
-    }
+    if (cards.length) add(cell, `foliage-${species.foliage}`, foliageFor(species.foliage, palette), cardGeometry(cards, centre, crownRadius));
     trees.push({ ...placement, y, crown: centre, crownRadius, trunkRadius: species.radius * placement.scale });
   }
   const root = new THREE.Group();

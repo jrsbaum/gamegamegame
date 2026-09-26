@@ -480,6 +480,91 @@ export const forestTreeTexture = (): THREE.DataTexture => {
   return toTexture(context);
 };
 
+/** Elliptic citrus leaf with a pointed tip, from its stalk at the origin along +x. */
+const citrusLeafPath = (context: CanvasRenderingContext2D, length: number, width: number): void => {
+  context.beginPath();
+  context.moveTo(0, 0);
+  context.bezierCurveTo(length * 0.22, -width * 0.62, length * 0.72, -width * 0.56, length, 0);
+  context.bezierCurveTo(length * 0.72, width * 0.56, length * 0.22, width * 0.62, 0, 0);
+  context.closePath();
+};
+
+const CITRUS_GREENS: Rgb[] = [[30, 66, 28], [40, 80, 34], [26, 58, 26], [48, 90, 38]];
+
+/** 2x2 atlas of glossy citrus foliage on fine twigs; the last cell carries a few white blossoms. */
+export const citrusClusterTexture = (): THREE.DataTexture => {
+  const context = createCanvas(1024, 1024);
+  const rng = createRng(47);
+  eachCell(context, 2, 2, (cell, x0, y0, size) => {
+    const cx = x0 + size / 2;
+    const cy = y0 + size / 2;
+    const radius = size * 0.38;
+    const twigs = drawTwigs(context, cx, cy, radius, rng, "rgb(54,58,34)", size * 0.014);
+    for (let leaf = 0; leaf < 40; leaf += 1) {
+      let x: number;
+      let y: number;
+      if (rng.next() < 0.65) {
+        const [tx, ty] = twigs[rng.int(0, twigs.length - 1)];
+        x = tx + rng.gauss() * size * 0.04;
+        y = ty + rng.gauss() * size * 0.04;
+      } else {
+        const angle = rng.range(0, TAU);
+        const reach = Math.sqrt(rng.next()) * radius;
+        x = cx + Math.cos(angle) * reach;
+        y = cy + Math.sin(angle) * reach;
+      }
+      const length = size * rng.range(0.11, 0.16);
+      const width = length * rng.range(0.4, 0.5);
+      const green = CITRUS_GREENS[(rng.int(0, 3) + cell) % CITRUS_GREENS.length];
+      const underside = rng.next() < 0.18;
+      const shade = rng.range(0.82, 1.18) * (underside ? 1.45 : 1);
+      context.save();
+      context.translate(x, y);
+      context.rotate(rng.range(0, TAU));
+      context.scale(1, rng.range(0.7, 1));
+      const gradient = context.createLinearGradient(0, 0, length, 0);
+      gradient.addColorStop(0, css(green, shade * 0.8));
+      gradient.addColorStop(0.6, css(green, shade * 1.08));
+      gradient.addColorStop(1, css(green, shade * 0.95));
+      citrusLeafPath(context, length, width);
+      context.fillStyle = gradient;
+      context.fill();
+      context.strokeStyle = css([120, 150, 70], underside ? 1 : 0.8, 0.7);
+      context.lineWidth = Math.max(1, size * 0.004);
+      context.beginPath();
+      context.moveTo(length * 0.04, 0);
+      context.quadraticCurveTo(length * 0.5, width * 0.04, length * 0.94, 0);
+      context.stroke();
+      if (!underside) {
+        context.strokeStyle = "rgba(235,245,220,0.28)";
+        context.lineWidth = Math.max(1, width * 0.12);
+        context.beginPath();
+        context.moveTo(length * 0.25, -width * 0.18);
+        context.quadraticCurveTo(length * 0.55, -width * 0.26, length * 0.8, -width * 0.12);
+        context.stroke();
+      }
+      context.restore();
+    }
+    if (cell !== 3) return;
+    for (let flower = 0; flower < 6; flower += 1) {
+      const [x, y] = twigs[rng.int(0, twigs.length - 1)];
+      const petal = size * rng.range(0.022, 0.03);
+      context.fillStyle = "rgb(250,248,238)";
+      for (let index = 0; index < 5; index += 1) {
+        const angle = (index / 5) * TAU + rng.next() * 0.3;
+        context.beginPath();
+        context.ellipse(x + Math.cos(angle) * petal * 0.8, y + Math.sin(angle) * petal * 0.8, petal, petal * 0.42, angle, 0, TAU);
+        context.fill();
+      }
+      context.fillStyle = "rgb(236,206,96)";
+      context.beginPath();
+      context.arc(x, y, petal * 0.4, 0, TAU);
+      context.fill();
+    }
+  });
+  return toTexture(context);
+};
+
 /** 2x2 atlas of shrub foliage: two plain leaf masses and two azaleas in flower. */
 export const shrubTexture = (): THREE.DataTexture => {
   const context = createCanvas(512, 512);
