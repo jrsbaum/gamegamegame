@@ -86,7 +86,7 @@ export const WORLD_OBSTACLES: readonly WorldObstacle[] = [
   { kind: "tree", x: 70, y: 30, width: 1, height: 1 }, { kind: "tree", x: 71, y: 31, width: 1, height: 1 },
   { kind: "rock", x: 34, y: 10, width: 2, height: 1 }, { kind: "rock", x: 36, y: 10, width: 1, height: 1 }, { kind: "rock", x: 57, y: 48, width: 2, height: 1 },
   { kind: "barn", x: 6, y: 14, width: 6, height: 4 }, { kind: "market", x: 62, y: 21, width: 6, height: 4 }, { kind: "house", x: 28, y: 44, width: 5, height: 3 },
-  { kind: "gate", x: 3, y: 28, width: 2, height: 2 }, { kind: "bridge", x: 40, y: 28, width: 4, height: 4 }
+  { kind: "gate", x: 3, y: 28, width: 2, height: 2 }, { kind: "bridge", x: 39, y: 29, width: 7, height: 2 }
 ] as const;
 
 export type WorldConnectionKind = "gate" | "bridge" | "path";
@@ -158,7 +158,7 @@ export function riverColumnAt(y: number): number {
 }
 
 export function isWorldWaterTile(x: number, y: number): boolean {
-  if (y >= 28 && y <= 31) return false;
+  if (y >= 29 && y <= 30) return false;
   const riverColumn = riverColumnAt(y);
   return x >= riverColumn && x <= riverColumn + 2;
 }
