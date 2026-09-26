@@ -98,20 +98,35 @@ const texelRange = (worldMin: number, worldMax: number, origin: number, limit: n
   Math.min(limit - 1, Math.ceil((worldMax - origin) * TEXELS_PER_UNIT))
 ];
 
-const refreshTiles = (tiles: ReadonlyArray<[number, number]>): void => {
+/** A round patch in world units where grass must not grow, such as the mulch under a tree. */
+export type BareSpot = { x: number; z: number; radius: number };
+const spotsByKey = new Map<string, BareSpot[]>();
+
+type WorldRect = { x0: number; x1: number; z0: number; z1: number };
+
+const tileRect = (x: number, y: number): WorldRect => ({ x0: tileToWorldX(x - 0.5), x1: tileToWorldX(x + 0.5), z0: tileToWorldZ(y - 0.5), z1: tileToWorldZ(y + 0.5) });
+
+const spotRect = (spot: BareSpot): WorldRect => ({ x0: spot.x - spot.radius, x1: spot.x + spot.radius, z0: spot.z - spot.radius, z1: spot.z + spot.radius });
+
+/** Recomputes the tilled and bare channels inside `rects` from every key still registered. */
+const refresh = (rects: readonly WorldRect[]): void => {
   const covered = new Set<string>();
   for (const list of tilledByKey.values()) for (const [x, y] of list) covered.add(`${x},${y}`);
-  for (const [x, y] of tiles) {
-    const [c0, c1] = texelRange(tileToWorldX(x - 0.5), tileToWorldX(x + 0.5), MASK_RECT.x0, COLUMNS);
-    const [r0, r1] = texelRange(tileToWorldZ(y - 0.5), tileToWorldZ(y + 0.5), MASK_RECT.z0, ROWS);
+  const spots = [...spotsByKey.values()].flat();
+  for (const rect of rects) {
+    const [c0, c1] = texelRange(rect.x0, rect.x1, MASK_RECT.x0, COLUMNS);
+    const [r0, r1] = texelRange(rect.z0, rect.z1, MASK_RECT.z0, ROWS);
+    const nearby = spots.filter((spot) => spot.x + spot.radius > rect.x0 - 1 && spot.x - spot.radius < rect.x1 + 1 && spot.z + spot.radius > rect.z0 - 1 && spot.z - spot.radius < rect.z1 + 1);
     for (let row = r0; row <= r1; row += 1) {
       for (let column = c0; column <= c1; column += 1) {
         const [wx, wz] = texelWorld(column, row);
         const { x: tx, y: ty } = worldToTile(wx, wz);
         const tilled = covered.has(`${Math.round(tx)},${Math.round(ty)}`) ? 255 : 0;
+        let spotted = 0;
+        for (const spot of nearby) spotted = Math.max(spotted, 1 - smoothstep(spot.radius - 0.35, spot.radius, Math.hypot(wx - spot.x, wz - spot.z)));
         const index = row * COLUMNS + column;
         data[index * 4 + 1] = tilled;
-        data[index * 4 + 2] = Math.max(staticBare[index], tilled);
+        data[index * 4 + 2] = Math.max(staticBare[index], tilled, Math.round(spotted * 255));
       }
     }
   }
@@ -123,14 +138,29 @@ export const setTilledTiles = (key: string, tiles: ReadonlyArray<[number, number
   const previous = tilledByKey.get(key) ?? [];
   tilledByKey.set(key, tiles.map(([x, y]) => [x, y]));
   groundMaskTexture();
-  refreshTiles([...previous, ...tiles]);
+  refresh([...previous, ...tiles].map(([x, y]) => tileRect(x, y)));
 };
 
 export const clearTilledTiles = (key: string): void => {
   const previous = tilledByKey.get(key);
   if (!previous) return;
   tilledByKey.delete(key);
-  refreshTiles(previous);
+  refresh(previous.map(([x, y]) => tileRect(x, y)));
+};
+
+/** Keeps grass out of round spots for the owner identified by `key`, leaving the terrain as it is. */
+export const setBareSpots = (key: string, spots: readonly BareSpot[]): void => {
+  const previous = spotsByKey.get(key) ?? [];
+  spotsByKey.set(key, spots.map((spot) => ({ ...spot })));
+  groundMaskTexture();
+  refresh([...previous, ...spots].map(spotRect));
+};
+
+export const clearBareSpots = (key: string): void => {
+  const previous = spotsByKey.get(key);
+  if (!previous) return;
+  spotsByKey.delete(key);
+  refresh(previous.map(spotRect));
 };
 
 export type MaskSample = { path: number; tilled: number; bare: number };
