@@ -49,6 +49,16 @@ export const cylinder = (top: number, bottom: number, height: number, segments: 
 export const lathe = (profile: ReadonlyArray<readonly [number, number]>, segments: number, t?: Placement): THREE.BufferGeometry =>
   place(new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), segments), t);
 
+const UP = new THREE.Vector3(0, 1, 0);
+
+/** Cylinder from `a` (radius r0) to `b` (radius r1). */
+export const rod = (a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, sides = 6): THREE.BufferGeometry => {
+  const length = a.distanceTo(b);
+  const geometry = new THREE.CylinderGeometry(r1, r0, length, sides, 1).translate(0, length / 2, 0);
+  geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, b.clone().sub(a).normalize()));
+  return geometry.translate(a.x, a.y, a.z);
+};
+
 /** Rectangular beam along a polyline; `width` is across and level, `height` is across and up. */
 export const beam = (points: ReadonlyArray<THREE.Vector3>, width: number, height: number, up = new THREE.Vector3(0, 1, 0)): THREE.BufferGeometry => {
   const positions: number[] = [];

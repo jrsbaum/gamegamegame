@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { getContentDefinition, type GrowthStage } from "@lafarmer2/content";
+import { rod } from "./architecture";
 import { SURFACES } from "./assets";
 import type { Circle } from "./controller";
 import { atlasCell, createRng, strawTexture, tomatoLeafTexture, type Rng } from "./foliage";
@@ -144,14 +145,6 @@ const disposeMeshes = (meshes: readonly THREE.Mesh[]): void => {
     mesh.removeFromParent();
     mesh.geometry.dispose();
   }
-};
-
-/** Cylinder from `a` (radius r0) to `b` (radius r1). */
-const rod = (a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, sides = 6): THREE.BufferGeometry => {
-  const length = a.distanceTo(b);
-  const geometry = new THREE.CylinderGeometry(r1, r0, length, sides, 1).translate(0, length / 2, 0);
-  geometry.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(UP, b.clone().sub(a).normalize()));
-  return geometry.translate(a.x, a.y, a.z);
 };
 
 /** Tapered tube through `points`. */
