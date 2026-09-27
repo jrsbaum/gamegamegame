@@ -34,6 +34,7 @@ export type WorldCallbacks = {
   onConnectionPrompt: (message: string) => void;
   onMessage: (text: string) => void;
   onTime?: (label: string) => void;
+  onFps?: (fps: number) => void;
 };
 
 const PENDING_LIMIT = 8;
@@ -141,6 +142,8 @@ export class WorldView {
   private lastHud = "";
   private timeLabel = "";
   private timeWait = 0;
+  private fpsSamples = 0;
+  private fpsWindow = 0;
   private cropClock = 0;
   private clock = 0;
   private lastFrame = 0;
@@ -520,6 +523,7 @@ export class WorldView {
     this.valley.setFade(this.fade);
     this.valley.frame({ dt, raw, focus: this.feet, speed: Math.hypot(this.walker.vx, this.walker.vz) });
     this.noteTime(dt);
+    this.noteFps(raw);
     this.raf = requestAnimationFrame(this.tick);
   };
 
@@ -708,6 +712,16 @@ export class WorldView {
       return;
     }
     if (!this.callbacks.realtime.action("farm.adopt", { contentId: action.contentId })) this.callbacks.onMessage("Sem conexão para adotar.");
+  }
+
+  private noteFps(frameSeconds: number): void {
+    this.fpsSamples += 1;
+    this.fpsWindow += frameSeconds;
+    if (this.fpsWindow < 0.25) return;
+    const fps = Math.round(this.fpsSamples / this.fpsWindow);
+    this.fpsSamples = 0;
+    this.fpsWindow = 0;
+    this.callbacks.onFps?.(fps);
   }
 
   private noteTime(dt: number): void {

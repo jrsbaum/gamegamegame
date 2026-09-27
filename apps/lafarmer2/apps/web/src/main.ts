@@ -256,7 +256,8 @@ const renderGame = (): void => {
   root.innerHTML = `<main class="relative h-screen overflow-hidden bg-ink" aria-label="Mundo do La Farmer 2">
     <div id="game-root" class="absolute inset-0"></div>
     <div class="pointer-events-none absolute inset-0 p-3 md:p-5 flex flex-col justify-between">
-      <header class="pointer-events-auto flex flex-wrap gap-3 items-start justify-between">
+      <p id="fps" class="pointer-events-none absolute right-3 top-3 z-30 bg-ink/75 px-2 py-1 text-sm text-cream tabular-nums md:right-5 md:top-5" aria-label="Quadros por segundo">— FPS</p>
+      <header class="pointer-events-auto flex flex-wrap gap-3 items-start justify-between pr-20">
         <div class="bg-cream/95 text-ink px-4 py-3 shadow-slat min-w-[220px]">
           <strong class="font-display text-2xl">${escapeHtml(profile.farmName || "Minha fazenda")}</strong>
           <p class="text-sm">${escapeHtml(profile.name)} · ${specializationLabel(profile.specialization)}</p>
@@ -321,7 +322,8 @@ const renderGame = (): void => {
     onMarket: () => { void openMarketPanel(); },
     onConnectionPrompt: (text) => { const target = root.querySelector("#hud-bottom-message"); if (target) target.textContent = text || "Chegue perto de uma produção para ver seu estado."; },
     onMessage: message,
-    onTime: (label) => { const target = root.querySelector("#time-of-day"); if (target) target.textContent = label; }
+    onTime: (label) => { const target = root.querySelector("#time-of-day"); if (target) target.textContent = label; },
+    onFps: (fps) => { const target = root.querySelector("#fps"); if (target) target.textContent = `${fps} FPS`; }
   });
 
   root.querySelector<HTMLButtonElement>("#toggle-sound")?.addEventListener("click", (event) => {
