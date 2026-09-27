@@ -12,7 +12,7 @@ FROM node:22-alpine AS build
 WORKDIR /app/lafarmer2
 COPY --from=deps /app/lafarmer2/node_modules ./node_modules
 COPY apps/lafarmer2/. .
-RUN npm run build --workspace=@lafarmer2/web
+RUN npm run build --workspace=@lafarmer2/content && npm run build --workspace=@lafarmer2/web
 
 FROM nginx:1.27-alpine AS runtime
 
