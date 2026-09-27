@@ -23,7 +23,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - private
+      private:
+        aliases:
+          - lafarmer2-backend
 
   web:
     build:
