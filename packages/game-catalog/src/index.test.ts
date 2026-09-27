@@ -9,6 +9,7 @@ describe('GameGameGame catalog', () => {
       'whoami.gamegamegame.site',
       'impostor.gamegamegame.site',
       'caracol.gamegamegame.site',
+      'lafarmer.gamegamegame.site',
       'lafarmer2.gamegamegame.site',
     ]);
     expect(new Set(GAME_CATALOG.map((game) => game.domain)).size).toBe(GAME_CATALOG.length);
@@ -16,6 +17,7 @@ describe('GameGameGame catalog', () => {
 
   it('keeps the catalog readonly and addressable by game id', () => {
     expect(listGames()).toBe(GAME_CATALOG);
+    expect(getGame('lafarmer')).toMatchObject({ title: 'LaFarmer 1', status: 'active' });
     expect(getGame('lafarmer2')).toMatchObject({ title: 'LaFarmer 2', status: 'active' });
     expect(hasCatalogGame('caracol')).toBe(true);
     expect(hasCatalogGame('unknown')).toBe(false);
