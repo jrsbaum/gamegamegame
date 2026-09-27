@@ -45,9 +45,11 @@ export function createApp(options: ServerOptions = {}): FastifyInstance {
   const websocket = attachWebSocketGateway(app.server, auth, game);
 
   app.addHook("onReady", async () => persistence.initialize());
-  app.addHook("onClose", async () => { await game.flushAll(); });
-  app.addHook("onClose", async () => websocket.close());
-  app.addHook("onClose", async () => persistence.close());
+  app.addHook("preClose", async () => websocket.close());
+  app.addHook("onClose", async () => {
+    await game.flushAll();
+    await persistence.close();
+  });
 
   app.get("/healthz", async () => ({ status: "ok", service: "lafarmer2-server" }));
   app.get("/api/catalog", async () => ({ items: CONTENT_CATALOG, inventoryItems: ITEM_CATALOG }));

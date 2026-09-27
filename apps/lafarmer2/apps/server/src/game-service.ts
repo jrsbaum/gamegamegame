@@ -393,7 +393,7 @@ export class GameService {
   }
 
   async flushAll(): Promise<void> {
-    await Promise.all([...this.pendingPersist.keys()].map((playerId) => this.flushPlayer(playerId)));
+    await Promise.all([...this.activePlayers.keys()].map((playerId) => this.flushPlayer(playerId)));
   }
 
   private async livePlayers(): Promise<PlayerState[]> {

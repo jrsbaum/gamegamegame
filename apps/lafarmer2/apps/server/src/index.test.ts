@@ -470,6 +470,7 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 }
 
 async function openSocket(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.OPEN) return;
   await new Promise<void>((resolve, reject) => {
     socket.once("open", () => resolve());
     socket.once("error", reject);

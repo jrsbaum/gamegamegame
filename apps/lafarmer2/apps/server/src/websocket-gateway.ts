@@ -13,8 +13,10 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
   const connections = new Map<string, Connection>();
   const clients = new Map<string, Client>();
   const messageQueues = new Map<Client, Promise<void>>();
+  let closing = false;
 
   server.on("upgrade", (request, socket, head) => {
+    if (closing) { socket.destroy(); return; }
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname !== "/ws") return;
     const token = readToken(request, url);
@@ -47,6 +49,7 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     });
 
     client.on("message", (data) => {
+      if (closing) return;
       const previous = messageQueues.get(client) ?? Promise.resolve();
       const next = previous.then(() => handleMessage(client, data.toString())).catch(() => undefined);
       messageQueues.set(client, next);
@@ -57,6 +60,7 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
       if (connections.get(playerId)?.client === client) {
         connections.delete(playerId);
         clients.delete(playerId);
+        if (closing) return;
         void game.flushPlayer(playerId);
         broadcastExcept(playerId, { type: "player_left", playerId });
         void broadcastPresence();
@@ -142,7 +146,9 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
 
   return {
     close: async () => {
-      for (const connection of connections.values()) { clearInterval(connection.onlineTimer); connection.client.close(); }
+      closing = true;
+      for (const connection of connections.values()) { clearInterval(connection.onlineTimer); connection.client.terminate(); }
+      await Promise.allSettled([...messageQueues.values()]);
       connections.clear();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
