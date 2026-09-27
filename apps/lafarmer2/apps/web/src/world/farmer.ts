@@ -16,8 +16,11 @@ export type FarmerLook = { clothing: Clothing; hair: HairStyle };
 
 export type Farmer = {
   readonly root: THREE.Group;
-  /** Poses the body for `speed` world units per second; true on the frame a foot lands. */
-  animate: (dt: number, speed: number) => boolean;
+  /**
+   * Poses the body for `speed` world units per second; true on the frame a foot lands.
+   * `gait.along` is +1 into the screen and -1 backward. `gait.strafe` is +1 to screen right.
+   */
+  animate: (dt: number, speed: number, gait?: { along: number; strafe: number }) => boolean;
   setLook: (look: FarmerLook) => void;
   dispose: () => void;
 };
@@ -221,6 +224,7 @@ export const createFarmer = (look: FarmerLook): Farmer => {
   let phase = 0;
   let moving = 0;
   let sprint = 0;
+  let lean = 0;
   let clock = 0;
 
   const setLook = (next: FarmerLook): void => {
@@ -232,19 +236,22 @@ export const createFarmer = (look: FarmerLook): Farmer => {
 
   const legHeight = (thigh: number, bend: number): number => THIGH * Math.cos(thigh) + SHIN * Math.cos(thigh - bend);
 
-  const animate = (dt: number, speed: number): boolean => {
+  const animate = (dt: number, speed: number, gait?: { along: number; strafe: number }): boolean => {
     clock += dt;
+    const along = gait?.along ?? 1;
+    const lateral = gait?.strafe ?? 0;
     moving = approach(moving, Math.min(1, speed / 1.1), 9, dt);
     sprint = approach(sprint, smooth(WALK_SPEED * 1.1, RUN_SPEED * 0.9, speed), 6, dt);
+    lean = approach(lean, lateral * moving, 8, dt);
     const stride = 2.5 + 1.2 * sprint;
-    const advance = (speed * dt) / stride;
+    const advance = ((speed * dt) / stride) * (along < -0.25 ? -1 : 1);
     const next = phase + advance;
     const landed = speed > 0.8 && moving > 0.5 && ((phase < 0.25 && next >= 0.25) || (phase < 0.75 && next >= 0.75) || next >= 1.25);
-    phase = next % 1;
+    phase = ((next % 1) + 1) % 1;
 
     const sine = Math.sin(phase * TAU);
     const cosine = Math.cos(phase * TAU);
-    const legSwing = (0.58 + 0.3 * sprint) * moving;
+    const legSwing = (0.58 + 0.3 * sprint) * moving * (0.62 + 0.38 * Math.abs(along));
     const kneeLift = (0.95 + 0.75 * sprint) * moving;
     const armSwing = (0.42 + 0.5 * sprint) * moving;
     let height = 0;
@@ -263,8 +270,8 @@ export const createFarmer = (look: FarmerLook): Farmer => {
     const breath = Math.sin(clock * 1.9) * (1 - moving);
     pelvis.position.y = HIP_DROP + height + ANKLE_HEIGHT + sprint * moving * 0.035 * Math.abs(cosine) + breath * 0.004;
     pelvis.rotation.y = -sine * 0.08 * moving;
-    pelvis.rotation.z = cosine * 0.03 * moving;
-    spine.rotation.x = (0.05 + 0.15 * sprint) * moving + breath * 0.012;
+    pelvis.rotation.z = cosine * 0.03 * moving + lean * 0.16;
+    spine.rotation.x = (0.05 + 0.15 * sprint) * moving * Math.max(0.35, along) + breath * 0.012;
     spine.rotation.y = sine * (0.1 + 0.05 * sprint) * moving;
     spine.rotation.z = -pelvis.rotation.z * 0.8;
     const glance = Math.sin(clock * 0.37) * Math.sin(clock * 0.13 + 1.1);

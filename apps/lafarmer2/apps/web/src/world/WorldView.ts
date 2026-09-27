@@ -120,6 +120,9 @@ export class WorldView {
   private farmer: Farmer | undefined;
   private walker: Walker | undefined;
   private chase: ChaseCamera | undefined;
+  /** Mesh yaw, easing toward the camera plus a small lead into the step. */
+  private poseYaw = 0;
+  private poseReady = false;
   private look: { clothing: Clothing; hair: HairStyle };
   private inventory: Record<string, number>;
   private presence: WorldPresence[] = [];
@@ -511,7 +514,7 @@ export class WorldView {
     const feetY = walkHeight(this.walker.x, this.walker.z);
     this.feet.set(this.walker.x, feetY, this.walker.z);
     this.chase.update(this.valley.camera, { x: this.walker.x, y: feetY, z: this.walker.z }, { x: this.walker.vx, z: this.walker.vz }, dt);
-    this.orientFarmer();
+    this.orientFarmer(dt);
     this.refreshPrompt();
     this.stepFloats(now);
     this.valley.setFade(this.fade);
@@ -566,17 +569,47 @@ export class WorldView {
     if (!this.farmer || !this.walker) return;
     const y = walkHeight(this.walker.x, this.walker.z);
     this.farmer.root.position.set(this.walker.x, y, this.walker.z);
-    this.orientFarmer();
-    this.farmer.animate(dt, Math.hypot(this.walker.vx, this.walker.vz));
+    this.farmer.animate(dt, Math.hypot(this.walker.vx, this.walker.vz), this.gait());
     this.playerPoint.set(this.walker.x, y, this.walker.z);
   }
 
-  /** Nose on the chase yaw (HUD forward); the back stays toward the lens. Strafe and reverse do not yaw the body. */
-  private orientFarmer(): void {
+  /** Step relative to the camera: +along is into the screen, +strafe is screen right. */
+  private gait(): { along: number; strafe: number } {
+    if (!this.chase || !this.walker) return { along: 1, strafe: 0 };
+    const speed = Math.hypot(this.walker.vx, this.walker.vz);
+    if (speed < 0.2) return { along: 1, strafe: 0 };
+    const forward = this.chase.forward();
+    const right = this.chase.right();
+    return {
+      along: (this.walker.vx * forward.x + this.walker.vz * forward.z) / speed,
+      strafe: (this.walker.vx * right.x + this.walker.vz * right.z) / speed
+    };
+  }
+
+  /**
+   * Nose stays with the HUD. A short lead yaws the mesh toward the step so a turn and a sidestep
+   * read as a body, not a slide. `walker.heading` stays on the camera, so the tile in front does too.
+   */
+  private orientFarmer(dt: number): void {
     if (!this.farmer || !this.walker || !this.chase) return;
     const yaw = this.chase.yaw();
     this.walker.heading = yaw;
-    this.farmer.root.rotation.y = farmerRootYaw(yaw);
+    const speed = Math.hypot(this.walker.vx, this.walker.vz);
+    let lead = 0;
+    if (speed > 0.45) {
+      const move = Math.atan2(this.walker.vx, this.walker.vz);
+      const delta = Math.atan2(Math.sin(move - yaw), Math.cos(move - yaw));
+      lead = Math.min(0.4, Math.max(-0.4, delta));
+    }
+    const goal = yaw + lead;
+    const error = Math.atan2(Math.sin(goal - this.poseYaw), Math.cos(goal - this.poseYaw));
+    if (!this.poseReady || Math.abs(error) > 1.2) {
+      this.poseYaw = goal;
+      this.poseReady = true;
+    } else {
+      this.poseYaw += error * (1 - Math.exp(-10 * dt));
+    }
+    this.farmer.root.rotation.y = farmerRootYaw(this.poseYaw);
   }
 
   private tileBlocked(tileX: number, tileY: number): boolean {
