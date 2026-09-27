@@ -756,6 +756,7 @@ export class WorldView {
         this.refreshPens();
       }
     }
+    if (type === "region.sync") this.applyRegionSync(message);
     if (type === "hello" || type === "snapshot") this.applySnapshot(message.snapshot);
     if (type === "world.presence") this.setPresence(message.presence);
     if (type === "world.region.entered") this.onRegionEntered(message.player);
@@ -815,6 +816,13 @@ export class WorldView {
     if (drift <= this.pending.length) return;
     placeWalker(this.walker, player.x, player.y);
     if (drift > 2) this.chase.snap();
+  }
+
+  private applyRegionSync(message: Record<string, unknown>): void {
+    if (typeof message.regionId === "string" && this.currentRegionId && message.regionId !== this.currentRegionId) return;
+    this.syncStructures(parseList(message.structures, (entry) => parseStructure(entry, this.playerId)), false);
+    this.syncItems(parseList(message.farmItems, parseFarmItem));
+    this.notifyProduction();
   }
 
   private applySnapshot(value: unknown): void {
