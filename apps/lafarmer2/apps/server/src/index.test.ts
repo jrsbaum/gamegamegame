@@ -303,6 +303,155 @@ describe("La Farmer 2 server", () => {
     expect(dinoWithoutEnclosure.json().error).toBe("structure_required");
   });
 
+  it("keeps a profile saved during a live session after the player moves", async () => {
+    const repositories = createInMemoryRepositories();
+    const app = createApp({ repositories });
+    apps.push(app);
+    const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Perfil", password: testPassword, credentialsSaved: true } });
+    const token = register.json().token as string;
+    const playerId = register.json().player.id as string;
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("server did not expose a port");
+    const socket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${token}`);
+    const messages: Record<string, any>[] = [];
+    socket.on("message", (data) => messages.push(JSON.parse(data.toString())));
+    await openSocket(socket);
+    await waitFor(() => messages.some((message) => message.type === "hello"));
+    const option = (await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${token}` } })).json().options[0];
+    const profile = await app.inject({
+      method: "PATCH",
+      url: "/api/player/profile",
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: "Perfil Vale", farmName: "Sítio do Perfil", specialization: "vegetables", plotId: option.id, clothing: "coral", hair: "long" }
+    });
+    expect(profile.statusCode).toBe(200);
+    socket.send(JSON.stringify({ type: "move", actionId: "profile-move", direction: "right" }));
+    await waitFor(() => messages.some((message) => message.type === "move_ack" && message.actionId === "profile-move"));
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const me = await app.inject({ method: "GET", url: "/api/me", headers: { authorization: `Bearer ${token}` } });
+    expect(me.json().player.farmName).toBe("Sítio do Perfil");
+    expect(me.json().player.specialization).toBe("vegetables");
+    expect(me.json().player.homeRegionId).toBe(option.id);
+    expect(me.json().player.appearance).toEqual({ clothing: "coral", hair: "long" });
+    const stored = await repositories.players.findById(playerId);
+    expect(stored?.farmName).toBe("Sítio do Perfil");
+    expect(stored?.appearance).toEqual({ clothing: "coral", hair: "long" });
+    socket.close();
+  });
+
+  it("writes the latest position when the socket closes before the move debounce", async () => {
+    const repositories = createInMemoryRepositories();
+    const app = createApp({ repositories });
+    apps.push(app);
+    const register = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Passo", password: testPassword, credentialsSaved: true } });
+    const token = register.json().token as string;
+    const playerId = register.json().player.id as string;
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("server did not expose a port");
+    const socket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${token}`);
+    const messages: Record<string, any>[] = [];
+    socket.on("message", (data) => messages.push(JSON.parse(data.toString())));
+    await openSocket(socket);
+    await waitFor(() => messages.some((message) => message.type === "hello"));
+    const hello = messages.find((message) => message.type === "hello");
+    if (!hello) throw new Error("missing websocket hello");
+    const origin = hello.snapshot.player.position.x as number;
+    socket.send(JSON.stringify({ type: "move", actionId: "flush-move", direction: "right" }));
+    await waitFor(() => messages.some((message) => message.type === "move_ack"));
+    await closeSocket(socket);
+    const started = Date.now();
+    let storedX = origin;
+    while (Date.now() - started < 200) {
+      storedX = (await repositories.players.findById(playerId))?.position.x ?? origin;
+      if (storedX === origin + 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(storedX).toBe(origin + 1);
+  });
+
+  it("lets two neighbours see each other and shares a structure built during the visit", async () => {
+    const repositories = createInMemoryRepositories();
+    const app = createApp({ repositories });
+    apps.push(app);
+    const hostRegister = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Anfitriao", password: testPassword, credentialsSaved: true } });
+    const guestRegister = await app.inject({ method: "POST", url: "/api/auth/register", payload: { nick: "Visita", password: alternateTestPassword, credentialsSaved: true } });
+    const hostToken = hostRegister.json().token as string;
+    const guestToken = guestRegister.json().token as string;
+    const hostBefore = await repositories.players.findByAccountId(hostRegister.json().player.accountId);
+    const guestBefore = await repositories.players.findByAccountId(guestRegister.json().player.accountId);
+    if (!hostBefore || !guestBefore) throw new Error("players missing");
+    await repositories.players.update({ ...hostBefore, position: { x: 42, y: 54 } });
+    await repositories.players.update({ ...guestBefore, position: { x: 40, y: 4 } });
+    const hostOptions = (await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${hostToken}` } })).json().options as Array<{ id: string }>;
+    expect(hostOptions.some((option) => option.id === "region-north")).toBe(true);
+    await app.inject({
+      method: "PATCH",
+      url: "/api/player/profile",
+      headers: { authorization: `Bearer ${hostToken}` },
+      payload: { name: "Anfitriao", farmName: "Casa Norte", specialization: "vegetables", plotId: "region-north", clothing: "forest", hair: "short" }
+    });
+    const guestOptions = (await app.inject({ method: "GET", url: "/api/world/land-options", headers: { authorization: `Bearer ${guestToken}` } })).json().options as Array<{ id: string }>;
+    expect(guestOptions.some((option) => option.id === "region-center")).toBe(true);
+    await app.inject({
+      method: "PATCH",
+      url: "/api/player/profile",
+      headers: { authorization: `Bearer ${guestToken}` },
+      payload: { name: "Visita", farmName: "Casa da Visita", specialization: "vegetables", plotId: "region-center", clothing: "river", hair: "long" }
+    });
+    const host = await repositories.players.findById(hostBefore.id);
+    const guest = await repositories.players.findById(guestBefore.id);
+    if (!host || !guest) throw new Error("players missing");
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const address = app.server.address();
+    if (!address || typeof address === "string") throw new Error("server did not expose a port");
+    const hostSocket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${hostToken}`);
+    const guestSocket = new WebSocket(`ws://127.0.0.1:${address.port}/ws?token=${guestToken}`);
+    const hostMessages: Record<string, any>[] = [];
+    const guestMessages: Record<string, any>[] = [];
+    hostSocket.on("message", (data) => hostMessages.push(JSON.parse(data.toString())));
+    guestSocket.on("message", (data) => guestMessages.push(JSON.parse(data.toString())));
+    await openSocket(hostSocket);
+    await openSocket(guestSocket);
+    await waitFor(() => hostMessages.some((message) => message.type === "hello") && guestMessages.some((message) => message.type === "hello"));
+    guestSocket.send(JSON.stringify({ type: "world.region.enter", payload: { regionId: "region-north" } }));
+    await waitFor(() => guestMessages.some((message) => message.type === "world.region.entered"));
+    await waitFor(() => hostMessages.some((message) => message.type === "player_region_changed"));
+    const entered = guestMessages.find((message) => message.type === "world.region.entered");
+    if (!entered) throw new Error("missing region entry");
+    expect(entered.player.currentRegionId).toBe("region-north");
+    expect(isWorldTileWalkable(entered.player.position.x, entered.player.position.y)).toBe(true);
+    expect(entered.player.position).not.toEqual({ x: 40, y: 56 });
+    await waitFor(() => guestMessages.some((message) => message.type === "snapshot" && message.snapshot.players.some((player: { id: string }) => player.id === host.id)));
+    const regionChanged = hostMessages.find((message) => message.type === "player_region_changed");
+    if (!regionChanged) throw new Error("missing region change");
+    expect(regionChanged.player.id).toBe(guest.id);
+    hostSocket.send(JSON.stringify({ type: "farm.structure.build", payload: { type: "house", x: 46, y: 52 } }));
+    await waitFor(() => guestMessages.some((message) => message.type === "region.sync" && message.structures?.some((structure: { type: string }) => structure.type === "house")));
+    const sync = guestMessages.find((message) => message.type === "region.sync");
+    if (!sync) throw new Error("missing region sync");
+    expect(sync.regionId).toBe("region-north");
+    const storedGuest = await repositories.players.findById(guest.id);
+    expect(storedGuest?.currentRegionId).toBe("region-north");
+    expect(isWorldTileWalkable(storedGuest?.position.x ?? -1, storedGuest?.position.y ?? -1)).toBe(true);
+    hostSocket.close();
+    guestSocket.close();
+  });
+
+  it("refuses a step into a neighbour structure", async () => {
+    const repositories = createInMemoryRepositories();
+    const game = new GameService({ players: repositories.players, farm: repositories.farm, structures: repositories.structures, market: repositories.market, wallet: repositories.wallet });
+    const visitor = { id: "visitor", accountId: "visitor-account", name: "Visita", farmName: "Visita", specialization: "vegetables" as const, plot: null, homeRegionId: "region-center", currentRegionId: "region-center", appearance: { clothing: "forest" as const, hair: "short" as const }, coins: 0, inventory: {}, inventoryQualities: {}, inventoryCapacity: 50, lastActiveAt: 0, position: { x: 21, y: 12 } };
+    await repositories.players.insert(visitor);
+    await repositories.players.insert({ ...visitor, id: "host", accountId: "host-account", name: "Dono" });
+    await repositories.structures.insert({ id: "pen", ownerId: "host", regionId: "region-center", type: "field", footprint: [[22, 12], [26, 12], [26, 15], [22, 15]], capacity: 0, cost: 100, state: "built", position: { x: 24, y: 13 } });
+    const blocked = await game.move("visitor", { actionId: "into-pen", direction: "right" });
+    expect(blocked.player.position).toEqual({ x: 21, y: 12 });
+    const free = await game.move("visitor", { actionId: "away-pen", direction: "left" });
+    expect(free.player.position).toEqual({ x: 20, y: 12 });
+  });
+
   it("reports health for the isolated service", async () => {
     const app = createApp();
     apps.push(app);
