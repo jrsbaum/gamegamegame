@@ -63,6 +63,14 @@ O nariz do fazendeiro local acompanha o yaw da câmera (`WorldView.orientFarmer(
 
 Estrutura própria bloqueia o corpo mesmo com o fazendeiro em cima (dá para sair). Estrutura alheia bloqueia só por fora. Colheita de tomate (`cycleSeconds` null) some no `farm.harvested`; a laranjeira espera o snapshot. `valley.ts` e `actors.ts` saíram; `movement.ts` fica por causa de `chooseWalk` e do tipo `Direction`.
 
+## Persistência e visita
+
+O perfil HTTP (`auth-service.ts:AuthService.updateProfile()`) gravava direto no repositório. O cache de `game-service.ts:GameService.savePlayer()` reescrevia a linha antiga no próximo passo. `adoptProfile()` segura nome, terra, especialização e visual. O passo debounced serializa a escrita e `websocket-gateway.ts` chama `flushPlayer()` ao fechar o socket.
+
+`enterRegion()` não deixa o jogador no marcador quando ele cai no rio ou fora da cerca: `walkableArrival()` escolhe o tile andável mais próximo. Estrutura de outro dono bloqueia a entrada. Quem já está na região recebe `region.sync` (`WorldView.applyRegionSync()`).
+
+Sem `DATABASE_URL` o processo continua em memória (`persistence.ts:createPersistence()`). O Postgres existente grava as mesmas operações; `market_purchase_receipts` segue sem uso porque a idempotência da compra mora no `GameService`.
+
 ## Grama
 
 `grass.ts:bladeTuft()` sem `shape` termina em ponta (juncos). O relvado passa `shape` com duas fitas cruzadas e pouco `droop`. Uma fita deitada mostra à câmera de perseguição só a borda fina e volta a parecer agulha.

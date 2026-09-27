@@ -6,15 +6,17 @@ import { ONLINE_TICK_INTERVAL_MS, type GameService } from "./game-service.js";
 import type { Direction } from "./domain.js";
 
 type Client = WebSocket & { playerId?: string };
-type Connection = { client: Client; onlineTimer: ReturnType<typeof setInterval> };
+type Connection = { client: Client; onlineTimer: ReturnType<typeof setInterval>; regionId: string | null };
 
 export function attachWebSocketGateway(server: Server, auth: AuthService, game: GameService): { close: () => Promise<void> } {
   const wss = new WebSocketServer({ noServer: true });
   const connections = new Map<string, Connection>();
   const clients = new Map<string, Client>();
   const messageQueues = new Map<Client, Promise<void>>();
+  let closing = false;
 
   server.on("upgrade", (request, socket, head) => {
+    if (closing) { socket.destroy(); return; }
     const url = new URL(request.url ?? "/", "http://localhost");
     if (url.pathname !== "/ws") return;
     const token = readToken(request, url);
@@ -36,10 +38,18 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     clients.set(playerId, client);
     game.markOnlineActivity(playerId);
     const onlineTimer = setInterval(() => void game.onlineTick(playerId).then((player) => send(client, { type: "wallet.updated", payload: { coins: player.coins } })), ONLINE_TICK_INTERVAL_MS);
-    connections.set(playerId, { client, onlineTimer });
-    void game.snapshot(playerId).then(async (snapshot) => { snapshot.presence = await game.worldPresence(new Set(connections.keys())); send(client, { type: "hello", snapshot }); broadcastExcept(playerId, { type: "player_joined", player: snapshot.player }); await broadcastPresence(); });
+    connections.set(playerId, { client, onlineTimer, regionId: null });
+    void game.snapshot(playerId).then(async (snapshot) => {
+      const connection = connections.get(playerId);
+      if (connection?.client === client) connection.regionId = snapshot.player.currentRegionId ?? snapshot.player.homeRegionId;
+      snapshot.presence = await game.worldPresence(new Set(connections.keys()));
+      send(client, { type: "hello", snapshot });
+      broadcastExcept(playerId, { type: "player_joined", player: snapshot.player });
+      await broadcastPresence();
+    });
 
     client.on("message", (data) => {
+      if (closing) return;
       const previous = messageQueues.get(client) ?? Promise.resolve();
       const next = previous.then(() => handleMessage(client, data.toString())).catch(() => undefined);
       messageQueues.set(client, next);
@@ -50,6 +60,8 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
       if (connections.get(playerId)?.client === client) {
         connections.delete(playerId);
         clients.delete(playerId);
+        if (closing) return;
+        void game.flushPlayer(playerId);
         broadcastExcept(playerId, { type: "player_left", playerId });
         void broadcastPresence();
       }
@@ -88,11 +100,14 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
         if (message.type === "farm.structure.build") send(client, { type: "farm.structure.built", structure: await game.buildStructure(client.playerId!, { type: String(payload.type) as never, x: payload.x === undefined ? undefined : Number(payload.x), y: payload.y === undefined ? undefined : Number(payload.y) }) });
         if (message.type === "world.region.enter") {
           const player = await game.enterRegion(client.playerId!, String(payload.regionId));
+          const connection = connections.get(client.playerId!);
+          if (connection) connection.regionId = player.currentRegionId ?? player.homeRegionId;
           send(client, { type: "world.region.entered", player });
           broadcastExcept(client.playerId!, { type: "player_region_changed", playerId: client.playerId, player });
           await broadcastPresence();
         }
         await sendSnapshot(client);
+        if (mutatesRegion(message.type)) await broadcastRegionSync(connections.get(client.playerId!)?.regionId ?? null, client.playerId!);
       }
     } catch (error) {
       send(client, { type: "error", code: error instanceof Error ? error.message : "move_failed" });
@@ -103,6 +118,16 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
     const serialized = JSON.stringify(payload);
     for (const [otherId, connection] of connections) {
       if (otherId !== playerId && connection.client.readyState === WebSocket.OPEN) connection.client.send(serialized);
+    }
+  }
+
+  async function broadcastRegionSync(regionId: string | null, exceptId: string): Promise<void> {
+    if (!regionId) return;
+    const contents = await game.regionContents(regionId);
+    const serialized = JSON.stringify({ type: "region.sync", regionId, farmItems: contents.farmItems, structures: contents.structures });
+    for (const [otherId, connection] of connections) {
+      if (otherId === exceptId || connection.regionId !== regionId) continue;
+      if (connection.client.readyState === WebSocket.OPEN) connection.client.send(serialized);
     }
   }
 
@@ -121,7 +146,9 @@ export function attachWebSocketGateway(server: Server, auth: AuthService, game: 
 
   return {
     close: async () => {
-      for (const connection of connections.values()) { clearInterval(connection.onlineTimer); connection.client.close(); }
+      closing = true;
+      for (const connection of connections.values()) { clearInterval(connection.onlineTimer); connection.client.terminate(); }
+      await Promise.allSettled([...messageQueues.values()]);
       connections.clear();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
     }
@@ -140,6 +167,10 @@ function isMoveMessage(value: unknown): value is { type: "move"; actionId: strin
   const message = value as Record<string, unknown>;
   const payload = (message.payload && typeof message.payload === "object" ? message.payload : message) as Record<string, unknown>;
   return message.type === "move" && typeof payload.actionId === "string" && typeof payload.direction === "string";
+}
+
+function mutatesRegion(type: string): boolean {
+  return type === "farm.plant" || type === "farm.adopt" || type === "farm.care" || type === "farm.harvest" || type === "farm.collect" || type === "farm.structure.build";
 }
 
 function isSupportedMessage(value: unknown): value is Record<string, unknown> & { type: string } {

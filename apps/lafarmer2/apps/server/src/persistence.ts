@@ -29,6 +29,9 @@ export function createPersistence(options: PersistenceOptions = {}): Persistence
 
   const databaseUrl = options.databaseUrl !== undefined ? options.databaseUrl : process.env.DATABASE_URL;
   const environment = options.environment ?? process.env.NODE_ENV;
+  if (environment === "production" && !databaseUrl) {
+    throw new Error("DATABASE_URL is required in production");
+  }
   if (!databaseUrl || environment === "test") {
     return {
       kind: "memory",

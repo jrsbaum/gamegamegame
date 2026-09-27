@@ -1,0 +1,38 @@
+name: LaFarmer 2 quality
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - apps/lafarmer2/**
+      - infra/docker/lafarmer2-*
+      - infra/dokploy/lafarmer2/**
+      - .github/workflows/lafarmer2-quality.yml
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - apps/lafarmer2/**
+      - infra/docker/lafarmer2-*
+      - infra/dokploy/lafarmer2/**
+      - .github/workflows/lafarmer2-quality.yml
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/lafarmer2/package-lock.json
+      - run: npm ci
+        working-directory: apps/lafarmer2
+      - run: npm test
+        working-directory: apps/lafarmer2
+      - run: npm run build
+        working-directory: apps/lafarmer2

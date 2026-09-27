@@ -23,6 +23,8 @@ export class GameService {
   private readonly actionReceipts = new Map<string, MoveResult>();
   private readonly activePlayers = new Map<string, PlayerState>();
   private readonly pendingPersist = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly writeTails = new Map<string, Promise<void>>();
+  private readonly externalProfiles = new Map<string, ProfileStamp>();
   private readonly onlineActivityUntil = new Map<string, number>();
   private readonly offlineProgress = new Map<string, OfflineProgress>();
   private readonly marketReceipts = new Map<string, { listing: MarketListing; coins: number; inventory: Record<string, number>; replayed: boolean }>();
@@ -35,11 +37,10 @@ export class GameService {
     const progress = await this.materializeOwner(player);
     const returnedProgress = this.offlineProgress.get(playerId) ?? { coins: 0, ...progress };
     this.offlineProgress.delete(playerId);
-    const [persistedPlayers, farmItems, structures, listings] = await Promise.all([this.repositories.players.listAll(), this.repositories.farm.listAll(), this.repositories.structures.listAll(), this.repositories.market.listActive()]);
-    const players = persistedPlayers.map((candidate) => this.activePlayers.get(candidate.id) ?? candidate);
-    const regionId = player.currentRegionId ?? player.homeRegionId;
+    const [players, farmItems, structures, listings] = await Promise.all([this.livePlayers(), this.repositories.farm.listAll(), this.repositories.structures.listAll(), this.repositories.market.listActive()]);
+    const regionId = occupiedRegion(player);
     return {
-      bounds: WORLD_BOUNDS, player, players: players.filter((candidate) => candidate.id !== playerId && candidate.currentRegionId === regionId),
+      bounds: WORLD_BOUNDS, player, players: players.filter((candidate) => candidate.id !== playerId && occupiedRegion(candidate) === regionId),
       farmItems: farmItems.filter((item) => item.regionId === regionId).map((item) => this.toView(item)), structures: structures.filter((structure) => structure.regionId === regionId), listings,
       presence: await this.worldPresence(),
       offlineProgress: returnedProgress
@@ -47,8 +48,7 @@ export class GameService {
   }
 
   async worldPresence(onlinePlayerIds: ReadonlySet<string> = new Set()): Promise<WorldPresence[]> {
-    const persistedPlayers = await this.repositories.players.listAll();
-    const players = persistedPlayers.map((candidate) => this.activePlayers.get(candidate.id) ?? candidate);
+    const players = await this.livePlayers();
     return players.filter((candidate) => candidate.homeRegionId).map((candidate) => ({
       id: candidate.id,
       name: candidate.name,
@@ -96,16 +96,17 @@ export class GameService {
     if (previous) return previous;
     const player = await this.requirePlayer(playerId);
     let position = { x: Math.round(player.position.x), y: Math.round(player.position.y) };
-    const regionId = player.currentRegionId ?? player.homeRegionId;
-    const structures = await this.repositories.structures.listByOwnerId(playerId);
+    const regionId = occupiedRegion(player);
+    const structures = await this.repositories.structures.listAll();
     const steps = command.sprint ? 2 : 1;
     let nextPosition = { ...position };
     for (let step = 0; step < steps; step += 1) {
+      const from = { ...nextPosition };
       if (command.direction === "up") nextPosition.y -= 1;
       if (command.direction === "down") nextPosition.y += 1;
       if (command.direction === "left") nextPosition.x -= 1;
       if (command.direction === "right") nextPosition.x += 1;
-      if (!isWorldTileWalkable(nextPosition.x, nextPosition.y) || structures.some((structure) => structure.regionId === regionId && insideStructureFootprint(structure, nextPosition.x, nextPosition.y))) {
+      if (!isWorldTileWalkable(nextPosition.x, nextPosition.y) || structures.some((structure) => structureBlocks(structure, playerId, regionId, from, nextPosition))) {
         nextPosition = step === 0 ? { ...player.position } : { ...position };
         break;
       }
@@ -206,7 +207,7 @@ export class GameService {
     const player = await this.requirePlayer(playerId);
     const currentRegionId = player.currentRegionId ?? player.homeRegionId;
     if (!currentRegionId) throw new GameError("region_not_found");
-    const target = (await this.repositories.players.listAll()).find((candidate) => candidate.homeRegionId === targetRegionId);
+    const target = (await this.livePlayers()).find((candidate) => candidate.homeRegionId === targetRegionId);
     if (!target) throw new GameError("region_not_found");
     const { getConnection } = await import("./world-service.js");
     const connection = getConnection(currentRegionId, targetRegionId);
@@ -215,7 +216,7 @@ export class GameService {
     const entry = outgoing ? connection.entry : connection.exit;
     const exit = outgoing ? connection.exit : connection.entry;
     if (Math.abs(player.position.x - entry.x) > 3 || Math.abs(player.position.y - entry.y) > 3) throw new GameError("not_at_connection");
-    const updated = { ...player, currentRegionId: targetRegionId, position: { ...exit }, lastActiveAt: this.now() };
+    const updated = { ...player, currentRegionId: targetRegionId, position: walkableArrival(exit), lastActiveAt: this.now() };
     await this.savePlayer(updated);
     return updated;
   }
@@ -359,26 +360,100 @@ export class GameService {
     await this.repositories.wallet.insert({ id: randomUUID(), playerId: player.id, delta, balance: player.coins, reason, referenceId, createdAt: this.now() });
   }
 
+  /** Keeps an HTTP profile write ahead of the live cache so a later move cannot put the old row back. */
+  async adoptProfile(updated: PlayerState): Promise<PlayerState> {
+    const active = this.activePlayers.get(updated.id);
+    const merged: PlayerState = active
+      ? {
+          ...active,
+          name: updated.name,
+          farmName: updated.farmName,
+          specialization: updated.specialization,
+          plot: updated.plot,
+          homeRegionId: updated.homeRegionId,
+          appearance: { ...updated.appearance }
+        }
+      : updated;
+    this.externalProfiles.set(merged.id, profileStamp(merged));
+    await this.savePlayer(merged);
+    return merged;
+  }
+
+  async regionContents(regionId: string | null): Promise<{ farmItems: FarmItemView[]; structures: FarmStructure[] }> {
+    if (!regionId) return { farmItems: [], structures: [] };
+    const [farmItems, structures] = await Promise.all([this.repositories.farm.listAll(), this.repositories.structures.listAll()]);
+    return {
+      farmItems: farmItems.filter((item) => item.regionId === regionId).map((item) => this.toView(item)),
+      structures: structures.filter((structure) => structure.regionId === regionId)
+    };
+  }
+
+  async flushPlayer(playerId: string): Promise<void> {
+    await this.flushPending(playerId);
+  }
+
+  async flushAll(): Promise<void> {
+    await Promise.all([...this.activePlayers.keys()].map((playerId) => this.flushPlayer(playerId)));
+  }
+
+  private async livePlayers(): Promise<PlayerState[]> {
+    const persisted = await this.repositories.players.listAll();
+    return persisted.map((candidate) => this.activePlayers.get(candidate.id) ?? candidate);
+  }
+
   private async savePlayer(player: PlayerState, immediate = true): Promise<void> {
-    this.activePlayers.set(player.id, player);
+    const stamped = this.stampProfile(player);
+    this.activePlayers.set(stamped.id, stamped);
     if (!immediate) {
-      if (this.pendingPersist.has(player.id)) return;
-      const timer = setTimeout(() => { this.pendingPersist.delete(player.id); const current = this.activePlayers.get(player.id); if (current) void this.repositories.players.update(current); }, 350);
-      this.pendingPersist.set(player.id, timer);
+      if (this.pendingPersist.has(stamped.id)) return;
+      const timer = setTimeout(() => {
+        this.pendingPersist.delete(stamped.id);
+        void this.enqueuePlayerWrite(stamped.id, () => this.persistActive(stamped.id));
+      }, 350);
+      this.pendingPersist.set(stamped.id, timer);
       return;
     }
-    const pending = this.pendingPersist.get(player.id);
-    if (pending) { clearTimeout(pending); this.pendingPersist.delete(player.id); }
-    await this.repositories.players.update(player);
+    this.clearPending(stamped.id);
+    await this.enqueuePlayerWrite(stamped.id, () => this.persistActive(stamped.id));
   }
 
   private async flushPending(playerId: string): Promise<void> {
+    this.clearPending(playerId);
+    if (!this.activePlayers.has(playerId)) return;
+    await this.enqueuePlayerWrite(playerId, () => this.persistActive(playerId));
+  }
+
+  private clearPending(playerId: string): void {
     const pending = this.pendingPersist.get(playerId);
     if (!pending) return;
     clearTimeout(pending);
     this.pendingPersist.delete(playerId);
+  }
+
+  private stampProfile(player: PlayerState): PlayerState {
+    const profile = this.externalProfiles.get(player.id);
+    if (!profile) return player;
+    return {
+      ...player,
+      name: profile.name,
+      farmName: profile.farmName,
+      specialization: profile.specialization,
+      plot: profile.plot,
+      homeRegionId: profile.homeRegionId,
+      appearance: { ...profile.appearance }
+    };
+  }
+
+  private enqueuePlayerWrite(playerId: string, write: () => Promise<void>): Promise<void> {
+    const previous = this.writeTails.get(playerId) ?? Promise.resolve();
+    const run = previous.then(write, write);
+    this.writeTails.set(playerId, run.then(() => undefined, () => undefined));
+    return run;
+  }
+
+  private async persistActive(playerId: string): Promise<void> {
     const current = this.activePlayers.get(playerId);
-    if (current) await this.repositories.players.update(current);
+    if (current) await this.repositories.players.update(this.stampProfile(current));
   }
 
   private toView(item: FarmItem): FarmItemView {
@@ -492,6 +567,51 @@ function rectanglesOverlap(structure: FarmStructure, x: number, y: number, width
 function insideStructureFootprint(structure: FarmStructure, x: number, y: number): boolean {
   const xs = structure.footprint.map((point) => point[0]); const ys = structure.footprint.map((point) => point[1]);
   return x >= Math.min(...xs) && x < Math.max(...xs) && y >= Math.min(...ys) && y < Math.max(...ys);
+}
+
+function occupiedRegion(player: PlayerState): string | null {
+  return player.currentRegionId ?? player.homeRegionId;
+}
+
+type ProfileStamp = Pick<PlayerState, "name" | "farmName" | "specialization" | "plot" | "homeRegionId" | "appearance">;
+
+function profileStamp(player: PlayerState): ProfileStamp {
+  return {
+    name: player.name,
+    farmName: player.farmName,
+    specialization: player.specialization,
+    plot: player.plot,
+    homeRegionId: player.homeRegionId,
+    appearance: { ...player.appearance }
+  };
+}
+
+/** Own buildings stay solid. A neighbour's building blocks entry from outside and still lets someone already inside step out. */
+function structureBlocks(structure: FarmStructure, playerId: string, regionId: string | null, from: { x: number; y: number }, to: { x: number; y: number }): boolean {
+  if (!regionId || structure.regionId !== regionId) return false;
+  if (!insideStructureFootprint(structure, to.x, to.y)) return false;
+  if (structure.ownerId === playerId) return true;
+  return !insideStructureFootprint(structure, from.x, from.y);
+}
+
+/** Connection markers sit on the river or outside the farm. Arrival uses the nearest walkable tile. */
+function walkableArrival(target: { x: number; y: number }): { x: number; y: number } {
+  const x = Math.round(target.x);
+  const y = Math.round(target.y);
+  if (isWorldTileWalkable(x, y)) return { x, y };
+  let best: { x: number; y: number; manhattan: number } | undefined;
+  for (let radius = 1; radius <= 3; radius += 1) {
+    for (let yy = y - radius; yy <= y + radius; yy += 1) {
+      for (let xx = x - radius; xx <= x + radius; xx += 1) {
+        if (Math.max(Math.abs(xx - x), Math.abs(yy - y)) !== radius) continue;
+        if (!isWorldTileWalkable(xx, yy)) continue;
+        const manhattan = Math.abs(xx - x) + Math.abs(yy - y);
+        if (!best || manhattan < best.manhattan || (manhattan === best.manhattan && (xx < best.x || (xx === best.x && yy < best.y)))) best = { x: xx, y: yy, manhattan };
+      }
+    }
+    if (best) return { x: best.x, y: best.y };
+  }
+  return { x, y };
 }
 function requiredCreatureStructure(contentId: string): FarmStructureType | undefined {
   if (contentId === "dinosaur") return "dinosaur_enclosure";

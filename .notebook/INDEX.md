@@ -3,7 +3,7 @@
 Inteligência acumulada sobre o projeto. Cada entrada existe porque custou
 investigação e custaria de novo.
 
-Last updated: 2026-09-26
+Last updated: 2026-09-27
 
 | Entrada | Sobre | Tags |
 | --- | --- | --- |
