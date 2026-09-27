@@ -1,4 +1,4 @@
-export const GAME_IDS = ['whoami', 'impostor', 'caracol', 'lafarmer'] as const;
+export const GAME_IDS = ['whoami', 'impostor', 'caracol', 'lafarmer2'] as const;
 export type GameId = typeof GAME_IDS[number];
 
 export const GAME_STATUSES = ['active', 'soon', 'maintenance'] as const;

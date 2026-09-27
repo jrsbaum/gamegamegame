@@ -38,13 +38,13 @@ export const GAME_CATALOG = [
     tone: 'lobby-game-caracol',
   },
   {
-    id: 'lafarmer',
-    domain: 'lafarmer.gamegamegame.site',
+    id: 'lafarmer2',
+    domain: 'lafarmer2.gamegamegame.site',
     status: 'active',
     mark: '🌱',
-    title: 'LaFarmer',
-    description: 'Cuide do seu pedaço de terra, plante e cresça com os vizinhos.',
-    detail: 'fazenda · mapa · comunidade',
+    title: 'LaFarmer 2',
+    description: 'Entre no vale em 3D, plante, visite os vizinhos e negocie no mercadinho.',
+    detail: 'vale 3D · fazenda · comunidade',
     tone: 'lobby-game-lafarmer',
   },
 ] as const satisfies readonly GameCatalogEntry[];
