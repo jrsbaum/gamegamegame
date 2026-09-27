@@ -59,10 +59,12 @@ Spawn: `PLAYER_SPAWN` em `packages/content/src/index.ts` — (20, 12). O tile (8
 
 A câmera nasce olhando para o leste (`INITIAL_CAMERA_YAW`), atrás do fazendeiro. W segue o eixo da câmera. O braço encolhe em sólido e sobe no terreno; não mire o yaw inicial no coração (42, 30).
 
+O nariz do fazendeiro local acompanha o yaw da câmera (`WorldView.orientFarmer()` depois de `chase.update`), com uma inclinação curta para o passo. `walker.heading` continua no yaw da vista. `movement.ts:farmerRootYaw()` devolve esse yaw: +Z local vai para `(sin yaw, cos yaw)`. O sinal negativo apontava o rosto para a lente. `stepWalker()` não mexe no heading. A marcha inverte no recuo e inclina no strafe (`farmer.animate()`). Remotos usam o yaw do deslocamento.
+
 Estrutura própria bloqueia o corpo mesmo com o fazendeiro em cima (dá para sair). Estrutura alheia bloqueia só por fora. Colheita de tomate (`cycleSeconds` null) some no `farm.harvested`; a laranjeira espera o snapshot. `valley.ts` e `actors.ts` saíram; `movement.ts` fica por causa de `chooseWalk` e do tipo `Direction`.
 
 ## Grama
 
 `grass.ts:bladeTuft()` sem `shape` termina em ponta (juncos). O relvado passa `shape` com duas fitas cruzadas e pouco `droop`. Uma fita deitada mostra à câmera de perseguição só a borda fina e volta a parecer agulha.
 
-Updated: 2026-09-26
+Updated: 2026-09-27

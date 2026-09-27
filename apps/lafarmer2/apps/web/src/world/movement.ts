@@ -8,6 +8,13 @@ export const SPRINT_TILES_PER_SECOND = 6.2;
 /** Camera looks east at spawn, into the open meadow rather than at the valley center. */
 export const INITIAL_CAMERA_YAW = Math.PI / 2;
 
+/**
+ * Root Y for a mesh that faces local +Z so its nose matches a chase-camera yaw.
+ * θ sends +Z to (sin θ, cos θ), the same vector as `forwardFromYaw`. Negating it
+ * points the nose back at the lens.
+ */
+export const farmerRootYaw = (viewYaw: number): number => viewYaw;
+
 /** Yaw for a mesh whose face points along local +Z. 0 looks south (+Z). */
 export const yawForDirection = (direction: Direction): number => {
   if (direction === "right") return Math.PI / 2;

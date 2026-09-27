@@ -25,7 +25,8 @@ const DRAG_YAW = 0.005;
 const DRAG_PITCH = 0.004;
 /** The camera only swings behind a player walking roughly away from it. */
 const FOLLOW_CONE = 0.6;
-const FOLLOW_RATE = 0.9;
+/** Fast enough that the view, and the body locked to it, catches a walk instead of creeping. */
+const FOLLOW_RATE = 2.6;
 /** Seconds after a manual turn before the camera starts following again. */
 const FOLLOW_DELAY = 1.2;
 const FOLLOW_MIN_SPEED = 1;

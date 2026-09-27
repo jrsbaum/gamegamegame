@@ -70,6 +70,17 @@ describe("stepWalker", () => {
     expect([walker.tileX, walker.tileY]).toEqual([21, 21]);
   });
 
+  it("does not yaw the body toward strafe or reverse", () => {
+    const walker = at(20, 20);
+    walker.heading = Math.PI / 2;
+    run(walker, { x: 0, z: 1, run: false }, 1, worldWith([]));
+    expect(walker.heading).toBe(Math.PI / 2);
+    expect(walker.z - tileToWorldZ(20)).toBeGreaterThan(3);
+    run(walker, { x: -1, z: 0, run: false }, 0.8, worldWith([]));
+    expect(walker.heading).toBe(Math.PI / 2);
+    expect(walker.vx).toBeLessThan(-1);
+  });
+
   it("comes to rest when the input is released", () => {
     const walker = at(20, 20);
     run(walker, { x: 0, z: 1, run: true }, 1, worldWith([]));
