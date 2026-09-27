@@ -13,7 +13,6 @@ export const WALK_SPEED = 3.8;
 export const RUN_SPEED = 7.6;
 const ACCELERATION = 11;
 const BRAKING = 14;
-const TURN_RATE = 11;
 /** Longest move resolved at once; faster frames are split so the body cannot tunnel. */
 const MAX_SUBSTEP = BODY_RADIUS * 0.5;
 
@@ -31,7 +30,7 @@ export type Walker = {
   z: number;
   vx: number;
   vz: number;
-  /** Yaw the body faces; 0 looks along +Z. */
+  /** Yaw the body faces; 0 looks along +Z. The view sets this; walking does not. */
   heading: number;
   /** Tile under the centre, as last reported. */
   tileX: number;
@@ -194,12 +193,6 @@ export const stepWalker = (walker: Walker, intent: WalkIntent, dt: number, world
     walker.tileY = tile.y;
   }
 
-  const moving = Math.hypot(walker.vx, walker.vz);
-  if (moving > 0.3) {
-    const goal = Math.atan2(walker.vx, walker.vz);
-    const delta = Math.atan2(Math.sin(goal - walker.heading), Math.cos(goal - walker.heading));
-    walker.heading += delta * (1 - Math.exp(-TURN_RATE * dt));
-  }
   return steps;
 };
 

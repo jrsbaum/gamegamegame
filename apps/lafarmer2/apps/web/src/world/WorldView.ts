@@ -13,7 +13,7 @@ import { createCrop, type Crop } from "./crops";
 import { parseFarmItem, parseList, parsePlayer, parseStructure, type FarmItemData, type PlayerData, type StructureData } from "./farmData";
 import { createFarmer, type Farmer } from "./farmer";
 import { hashString, tileToWorld, tileToWorldX, tileToWorldZ, walkHeight } from "./height";
-import { INITIAL_CAMERA_YAW, type Direction } from "./movement";
+import { INITIAL_CAMERA_YAW, farmerRootYaw, type Direction } from "./movement";
 import { createStructure, type Structure } from "./structures";
 import { createValleyScene, type ValleyScene } from "./valleyScene";
 import { errorText, pickAction, tileBlocked, type PlayerAction, type RuleStructure } from "./worldRules";
@@ -511,6 +511,7 @@ export class WorldView {
     const feetY = walkHeight(this.walker.x, this.walker.z);
     this.feet.set(this.walker.x, feetY, this.walker.z);
     this.chase.update(this.valley.camera, { x: this.walker.x, y: feetY, z: this.walker.z }, { x: this.walker.vx, z: this.walker.vz }, dt);
+    this.orientFarmer();
     this.refreshPrompt();
     this.stepFloats(now);
     this.valley.setFade(this.fade);
@@ -565,9 +566,17 @@ export class WorldView {
     if (!this.farmer || !this.walker) return;
     const y = walkHeight(this.walker.x, this.walker.z);
     this.farmer.root.position.set(this.walker.x, y, this.walker.z);
-    this.farmer.root.rotation.y = -this.walker.heading;
+    this.orientFarmer();
     this.farmer.animate(dt, Math.hypot(this.walker.vx, this.walker.vz));
     this.playerPoint.set(this.walker.x, y, this.walker.z);
+  }
+
+  /** Nose on the chase yaw (HUD forward); the back stays toward the lens. Strafe and reverse do not yaw the body. */
+  private orientFarmer(): void {
+    if (!this.farmer || !this.walker || !this.chase) return;
+    const yaw = this.chase.yaw();
+    this.walker.heading = yaw;
+    this.farmer.root.rotation.y = farmerRootYaw(yaw);
   }
 
   private tileBlocked(tileX: number, tileY: number): boolean {
@@ -993,7 +1002,7 @@ export class WorldView {
       }
       const y = walkHeight(remote.x, remote.z);
       remote.farmer.root.position.set(remote.x, y, remote.z);
-      remote.farmer.root.rotation.y = -remote.heading;
+      remote.farmer.root.rotation.y = farmerRootYaw(remote.heading);
       remote.farmer.animate(dt, distance > 0.05 ? Math.min(8, distance / Math.max(dt, 1e-4)) : 0);
       this.placeBadge(remote.tag, remote.x, y + 2.15, remote.z);
     }

@@ -1,9 +1,25 @@
 import { isWorldTileWalkable } from "@lafarmer2/content";
+import * as THREE from "three";
 import { describe, expect, it } from "vitest";
-import { INITIAL_CAMERA_YAW, chooseWalk, rightFromYaw } from "./movement";
+import { INITIAL_CAMERA_YAW, chooseWalk, farmerRootYaw, forwardFromYaw, rightFromYaw } from "./movement";
 
 const walk = (x: number, y: number, yaw: number, forward: number, strafe: number, preferCrossAxis = false, sprint = false) =>
   chooseWalk({ x, y }, yaw, { forward, strafe }, preferCrossAxis, isWorldTileWalkable, sprint);
+
+describe("farmerRootYaw", () => {
+  it("points local +Z along the chase forward, back toward the lens", () => {
+    for (const yaw of [0, INITIAL_CAMERA_YAW, -0.4, Math.PI]) {
+      const root = new THREE.Object3D();
+      root.rotation.y = farmerRootYaw(yaw);
+      root.updateMatrixWorld();
+      const nose = new THREE.Vector3(0, 0, 1).applyMatrix4(root.matrixWorld);
+      const forward = forwardFromYaw(yaw);
+      expect(nose.x).toBeCloseTo(forward.x);
+      expect(nose.z).toBeCloseTo(forward.z);
+      expect(nose.x * Math.sin(yaw) + nose.z * Math.cos(yaw)).toBeGreaterThan(0.99);
+    }
+  });
+});
 
 describe("camera-relative steps", () => {
   it("sends W along the camera forward and D along the screen-right", () => {
