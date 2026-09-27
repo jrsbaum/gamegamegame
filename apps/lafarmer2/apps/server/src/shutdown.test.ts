@@ -32,7 +32,9 @@ describe("deployment lifecycle", () => {
       socket.send(JSON.stringify({ type: "move", actionId: "shutdown-move", direction: "right" }));
       const moved = await acknowledged;
       expect(moved.player.position).toEqual({ x: player.position.x + 1, y: player.position.y });
+      const closed = once(socket, "close");
       await app.close();
+      await closed;
       expect(socket.readyState).toBe(WebSocket.CLOSED);
       expect((await repositories.players.findById(player.id))?.position).toEqual(moved.player.position);
     } finally {
