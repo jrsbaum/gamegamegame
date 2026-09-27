@@ -7,7 +7,7 @@ describe('lobby navigation', () => {
   it('renders one dedicated link for every catalog game', () => {
     const markup = renderToStaticMarkup(<LobbyApp />);
 
-    expect(GAME_CATALOG).toHaveLength(4);
+    expect(GAME_CATALOG).toHaveLength(5);
     for (const game of GAME_CATALOG) {
       expect(markup).toContain(`href="https://${game.domain}/"`);
       expect(markup).toContain(game.title);
@@ -18,6 +18,6 @@ describe('lobby navigation', () => {
     const markup = renderToStaticMarkup(<LobbyApp />);
 
     expect(markup).not.toContain('?game=');
-    expect(markup.match(/href="https:\/\/[^\"]+\.gamegamegame\.site\/"/g)).toHaveLength(4);
+    expect(markup.match(/href="https:\/\/[^\"]+\.gamegamegame\.site\/"/g)).toHaveLength(5);
   });
 });

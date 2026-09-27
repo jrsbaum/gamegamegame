@@ -47,7 +47,7 @@ export function LobbyApp(): JSX.Element {
 
       <section className="lobby-hero" aria-labelledby="lobby-title">
         <div className="lobby-hero-copy">
-          <p className="eyebrow">Uma plataforma · quatro jeitos de brincar</p>
+          <p className="eyebrow">Uma plataforma · cinco jeitos de brincar</p>
           <h1 id="lobby-title">Escolha uma<br /><span>confusão.</span></h1>
           <p className="lobby-lede">Cada jogo tem sua própria mesa, seu próprio ritmo e seu próprio deploy. Entre direto onde a brincadeira começa.</p>
           <div className="lobby-rule" aria-hidden="true"><span /> <small>sem cadastro para as salas</small></div>
