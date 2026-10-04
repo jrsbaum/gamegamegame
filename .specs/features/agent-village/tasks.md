@@ -114,7 +114,7 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 **Requirement**: OPS-04
 **Tools**: filesystem; tlc-spec-driven
 **Done when**:
-- [ ] Catálogo/lobby passam com seis jogos e URLs corretos, inclusive HML.
+- [x] Catálogo/lobby passam com seis jogos e URLs corretos, inclusive HML (10 testes, build lobby PASS).
 **Tests**: unit
 **Gate**: Catalog
 
