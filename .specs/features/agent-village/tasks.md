@@ -61,7 +61,7 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 **Requirement**: ROBOT-03, ROBOT-04, ROBOT-08, EDGE-03
 **Tools**: filesystem; tlc-spec-driven
 **Done when**:
-- [ ] Testes de projeção e estados exatos passam, incluindo sessão/turno independente.
+- [x] Testes de projeção e estados exatos passam, incluindo sessão/turno independente (6 testes totais).
 **Tests**: unit
 **Gate**: Quick
 
@@ -166,3 +166,17 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 | T5 | Cliente | e2e | e2e | ✅ |
 | T6 | Catálogo | unit | unit | ✅ |
 | T7 | Config | none | none | ✅ |
+
+## Per-task Evidence
+
+### T2 adequacy
+
+| AC | Evidence / assertion | Outcome | Reverse mapping |
+| --- | --- | --- | --- |
+| ROBOT-04 | tests/events.test.mjs:12 `assert.deepEqual(publicRobot(robot), common)`; :14/:16 exact allowlists | none/title/description | Keep: privacy |
+| ROBOT-03 | tests/events.test.mjs:28 `assert.equal(robots[0].status, 'tool')`; :29 other idle; :31 working; :33 completed | independent tools/session | Keep: concurrency |
+| EDGE-03 | tests/events.test.mjs:41 `assert.equal(applyEvent(robots, signal('finish')), null)` | old turn ignored | Keep: ordering |
+| ROBOT-08 | tests/events.test.mjs:51/:53/:55 exact reading/waiting/reading; :59 terminals | distinct states | Keep: state transitions |
+| ROBOT-02 | tests/events.test.mjs:80 `assert.equal(JSON.stringify(event).includes('secret'), false)` | raw content discarded | Keep: adapters |
+
+Verdict: exact outcomes, no shallow assertions, every test bounded to spec; Node native tests beside app follow project isolation. Gate 6/6 PASS.
