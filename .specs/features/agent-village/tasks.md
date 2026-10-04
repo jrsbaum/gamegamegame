@@ -88,7 +88,7 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 **Requirement**: AUTH-01..05, ROBOT-02, ROBOT-04..05, ROBOT-07, OPS-02, EDGE-01..02
 **Tools**: filesystem; tlc-spec-driven
 **Done when**:
-- [ ] Integração HTTP prova cookies, projeção pública, limites, Origin, rate limit e revogação.
+- [x] Integração HTTP prova cookies, projeção pública, limites, Origin, rate limit e revogação (19 testes totais).
 **Tests**: integration
 **Gate**: Full
 
@@ -195,3 +195,14 @@ Verdict: exact outcomes, no shallow assertions, every test bounded to spec; Node
 | EDGE-05 | tests/village.test.mjs:161 reject open; :162 exact corrupt file | no silent data replacement | Keep: startup |
 
 Verdict: exact outcome and state assertions; every test maps to spec; 15/15 PASS plus static gate. WORLD-03 desk persistence is asserted by restart test.
+
+### T4 adequacy
+
+| AC | Evidence / assertion | Outcome | Reverse mapping |
+| --- | --- | --- | --- |
+| OPS-02/WORLD-01 | tests/http.test.mjs:34 exact health response; :35 HTML; :37 demo true; :38 named members; :39 five robots; :41 omitted title | executable/demo projected | Keep: serving |
+| AUTH-01..03/05 | tests/http.test.mjs:50 unauth401; :52 invite403; :53 origin403; :57 cookie attributes; :58 token omitted; :64 logout401; :65 login200 | browser auth | Keep: auth boundary |
+| AUTH-04/ROBOT-02/04/05/07 | tests/http.test.mjs:74 cross-owner404; :79 cookie not collector401; :80 forged owner400; :81 session400; :82 exact working; :84 hidden fields absent; :87/:88 title only; :91 description; :93 previous token401 | HTTP ownership and privacy | Keep: wire payload |
+| EDGE-01/02/AUTH-05 | tests/http.test.mjs:101 invalid JSON400; :102 oversized413; :103 unknown400; :106 rate429; :107 secret not echoed | bounded ingress | Keep: errors |
+
+Verdict: 19/19 PASS plus static gate. API tests exercise real HTTP and saved state, no mocks; each assertion encodes a spec outcome.
