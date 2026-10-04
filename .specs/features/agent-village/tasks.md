@@ -74,8 +74,8 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 **Requirement**: WORLD-03, AUTH-01..04, ROBOT-01..07, OPS-01, EDGE-02, EDGE-04..05
 **Tools**: filesystem; tlc-spec-driven
 **Done when**:
-- [ ] Testes persistem/reabrem, provam rollback e rejeitam mutações entre donos.
-- [ ] Snapshots omitem IDs de sessão/tokens e privacidade é aplicada antes da entrega.
+- [x] Testes persistem/reabrem, provam rollback e rejeitam mutações entre donos (15 testes totais).
+- [x] Snapshots omitem IDs de sessão/tokens e privacidade é aplicada antes da entrega.
 **Tests**: integration
 **Gate**: Full
 
@@ -180,3 +180,18 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 | ROBOT-02 | tests/events.test.mjs:80 `assert.equal(JSON.stringify(event).includes('secret'), false)` | raw content discarded | Keep: adapters |
 
 Verdict: exact outcomes, no shallow assertions, every test bounded to spec; Node native tests beside app follow project isolation. Gate 6/6 PASS.
+
+### T3 adequacy
+
+| AC | Evidence / assertion | Outcome | Reverse mapping |
+| --- | --- | --- | --- |
+| AUTH-01..03 | tests/village.test.mjs:27/28/29 `deskSize=medium`, `expiresAt=1000+SESSION_MS`, authenticated username; :32 password omitted; :38/:40 revoked/expired 401 | isolated auth | Keep: credentials |
+| AUTH-04/ROBOT-01/05 | tests/village.test.mjs:56 `assert.rejects(action(), {status:404})`; :60 invalid privacy 400; :50 default none; :59 duplicate 409 | owned mutations | Keep: ownership |
+| ROBOT-04/05 | tests/village.test.mjs:70 exact public keys; :71 private thread absent; :74 title and :75 no description; :77 description; :79 title removed | projection before transmission | Keep: privacy |
+| ROBOT-02/03/06 | tests/village.test.mjs:89/:90 invalid token/session; :91 accepted working; :92 late sequence false; :93 offline owner; :94 independent session idle | authenticated ordered sessions | Keep: ingestion |
+| ROBOT-07 | tests/village.test.mjs:104/:107 previous/deleted token 401 | granular revoke | Keep: token scope |
+| OPS-01 | tests/village.test.mjs:120..124 persisted account, desk, privacy, offline then working; :136 rollback medium; :140 two sessions | durability/atomic queue | Keep: persistence |
+| EDGE-02/04 | tests/village.test.mjs:149 bounds 400; :152 limit 409; :155 account cap409 | validation | Keep: limits |
+| EDGE-05 | tests/village.test.mjs:161 reject open; :162 exact corrupt file | no silent data replacement | Keep: startup |
+
+Verdict: exact outcome and state assertions; every test maps to spec; 15/15 PASS plus static gate. WORLD-03 desk persistence is asserted by restart test.
