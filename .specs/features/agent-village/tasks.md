@@ -101,7 +101,7 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 **Requirement**: WORLD-01..05, ROBOT-05, ROBOT-08
 **Tools**: filesystem; frontend-design; computer-use (QA coordenador)
 **Done when**:
-- [ ] TypeScript/build passam e QA Chrome permite demo, cenas, seleção e cadastro/configuração.
+- [x] TypeScript/build passam e QA Chrome permite demo, cenas, seleção e cadastro/configuração (QA coordenador 2026-10-04).
 **Tests**: e2e
 **Gate**: Build
 
@@ -206,3 +206,7 @@ Verdict: exact outcome and state assertions; every test maps to spec; 15/15 PASS
 | EDGE-01/02/AUTH-05 | tests/http.test.mjs:101 invalid JSON400; :102 oversized413; :103 unknown400; :106 rate429; :107 secret not echoed | bounded ingress | Keep: errors |
 
 Verdict: 19/19 PASS plus static gate. API tests exercise real HTTP and saved state, no mocks; each assertion encodes a spec outcome.
+
+### T5 adequacy
+
+Coordenador fez QA Chrome em http://127.0.0.1:5176: jardim 3D, botão Entrar no escritório, Próximo sinal levou Codex 1 a Trabalhando (1/20), seleção Cursor mostrou título Criar um portfólio sem descrição, cadastro criou QA Browser, mesa mudou Bancada → Ateliê. Screenshot capturado pelo coordenador. Build TypeScript/Vite PASS; 19 testes regressivos PASS. WORLD-04/05 têm fallback HTML e media query observada no código; verificação adversarial final fica com Verifier.
