@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { taskBubbleText } from './bubbles.mjs';
 import type { Snapshot } from './types';
 
 // Geometry and palette adapted from the user's local eventos-na-vila prototype.
@@ -83,7 +84,9 @@ export class VillageWorld {
     const g = this.group(p, x, .38, z); this.rounded(g, .43, .37, .35, color, 0, .37, 0, .1); this.rounded(g, .56, .38, .4, palette.metal, 0, .77, 0, .13); this.rounded(g, .41, .19, .025, palette.ink, 0, .78, .225, .045);
     const eyes: THREE.Mesh[] = [];
     for (const side of [-1, 1]) { const eye = this.ball(g, .04, palette.screen, side * .1, .8, .25); eye.material = eye.material.clone(); eyes.push(eye); this.cyl(g, .055, .21, color, side * .29, .4, .02); this.box(g, .13, .08, .2, palette.ink, side * .12, .095, .07); }
-    this.cyl(g, .017, .16, palette.ink, 0, 1.03); const light = this.ball(g, .055, color, 0, 1.13); light.material = light.material.clone(); g.userData = { kind: 'robot', id, index, eyes, light, status: 'idle' }; this.bots.set(id, g); return g;
+    this.cyl(g, .017, .16, palette.ink, 0, 1.03); const light = this.ball(g, .055, color, 0, 1.13); light.material = light.material.clone();
+    const bubble = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false })); bubble.position.set(0, 2.25, 0); g.add(bubble);
+    g.userData = { kind: 'robot', id, index, eyes, light, bubble, status: 'idle' }; this.bots.set(id, g); return g;
   }
   private chair(p: THREE.Object3D, x: number, z: number, c: string) { this.cyl(p, .32, .1, c, x, .43, z); this.cyl(p, .045, .35, palette.hair, x, .2, z); this.box(p, .53, .48, .09, c, x, .68, z + .25); }
   private monitor(p: THREE.Object3D, x: number, z: number, rotation = 0, mini = false) {
@@ -94,6 +97,15 @@ export class VillageWorld {
     const c = document.createElement('canvas'); c.width = 512; c.height = 128; const ctx = c.getContext('2d')!;
     ctx.fillStyle = '#fff8e5'; ctx.beginPath(); ctx.roundRect(4, 4, 504, 120, 32); ctx.fill(); ctx.fillStyle = palette.ink; ctx.font = 'bold 56px Trebuchet MS, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text.slice(0, 24), 256, 65, 450);
     const texture = new THREE.CanvasTexture(c); texture.colorSpace = THREE.SRGBColorSpace; const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, depthTest: false })); sprite.position.set(x, y, z); sprite.scale.set(width, width / 4, 1); p.add(sprite); return sprite;
+  }
+  private updateBubble(sprite: THREE.Sprite, text: string) {
+    const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 176; const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#fff8e5'; ctx.beginPath(); ctx.roundRect(8, 8, 624, 128, 30); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(290, 132); ctx.lineTo(320, 166); ctx.lineTo(350, 132); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = palette.ink; ctx.font = 'bold 38px Trebuchet MS, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(text.slice(0, 34), 320, 72, 570);
+    const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
+    const material = sprite.material as THREE.SpriteMaterial; material.map?.dispose(); material.map = texture; material.needsUpdate = true;
+    const width = Math.min(4.8, Math.max(1.8, text.length * .105 + .85)); sprite.scale.set(width, width * .275, 1);
   }
   private release(parent: THREE.Object3D) {
     parent.traverse(o => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); if (o.userData.uniqueMaterial) (o.material as THREE.Material).dispose(); } if (o instanceof THREE.Sprite) { o.material.map?.dispose(); o.material.dispose(); } if (o.userData.eyes) { o.userData.eyes.forEach((eye: THREE.Mesh) => (eye.material as THREE.Material).dispose()); (o.userData.light.material as THREE.Material).dispose(); } }); parent.clear();
@@ -132,6 +144,7 @@ export class VillageWorld {
     for (const robot of snapshot.robots) {
       const g = this.bots.get(robot.id); if (!g) continue;
       g.userData.status = robot.status;
+      this.updateBubble(g.userData.bubble as THREE.Sprite, taskBubbleText(robot));
       (g.userData.light.material as THREE.MeshStandardMaterial).color.set(activity[robot.status] ?? activity.idle);
       g.userData.eyes.forEach((eye: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>) => { eye.material.color.set(activity[robot.status] ?? activity.idle); eye.scale.y = robot.status === 'idle' ? .25 : 1; });
     }
