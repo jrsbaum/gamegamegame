@@ -20,16 +20,17 @@ async function atomicWrite(path, value) {
   await rename(temporary, path);
 }
 
-async function nextSequence(config) {
+async function nextSequence() {
   const lock = `${configPath}.lock`;
   for (let attempt = 0; attempt < 40; attempt++) {
     try {
       const handle = await open(lock, 'wx', 0o600);
       await handle.close();
       try {
-        const next = Math.max(0, Number(config.sequence) || 0) + 1;
-        config.sequence = next;
-        await atomicWrite(configPath, JSON.stringify(config));
+        const current = JSON.parse(await readFile(configPath, 'utf8'));
+        const next = Math.max(0, Number(current.sequence) || 0) + 1;
+        current.sequence = next;
+        await atomicWrite(configPath, JSON.stringify(current));
         return next;
       } finally { await unlink(lock).catch(() => {}); }
     } catch (error) {
@@ -48,7 +49,7 @@ async function main() {
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     const event = sanitizeEvent(config.provider, raw);
     if (!event) return;
-    const sequence = await nextSequence(config);
+    const sequence = await nextSequence();
     const response = await fetch(`${config.endpoint}/api/events`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.token}` },
       body: JSON.stringify({ sequence, event }), signal: AbortSignal.timeout(2500),
