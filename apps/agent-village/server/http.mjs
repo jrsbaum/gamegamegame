@@ -68,7 +68,8 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
           return json(path.endsWith('/register') ? 201 : 200, { account: session.account });
         }
         if (method === 'POST' && path === '/api/events') return json(200, await village.ingest(bearerToken(req), await body(req)));
-        if (!['/api/me', '/api/village', '/api/desk', '/api/robots', '/api/auth/logout'].includes(path) && !/^\/api\/robots\/[^/]+(?:\/token)?$/.test(path)) throw new VillageError(404, 'Destino não encontrado.');
+        if (method === 'POST' && path === '/api/pairings/exchange') return json(200, await village.exchangePairing((await body(req)).code));
+        if (!['/api/me', '/api/village', '/api/desk', '/api/robots', '/api/pairings', '/api/auth/logout'].includes(path) && !/^\/api\/robots\/[^/]+(?:\/token)?$/.test(path)) throw new VillageError(404, 'Destino não encontrado.');
         const owner = village.authenticate(cookieToken(req));
         if (method === 'GET' && path === '/api/me') return json(200, village.me(owner.id));
         if (method === 'GET' && path === '/api/village') return json(200, village.snapshot(owner.id));
@@ -79,6 +80,7 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
         }
         if (method === 'PATCH' && path === '/api/desk') return json(200, await village.updateDesk(owner.id, await body(req)));
         if (method === 'POST' && path === '/api/robots') return json(201, await village.createRobot(owner.id, await body(req)));
+        if (method === 'POST' && path === '/api/pairings') return json(201, await village.createPairing(owner.id, await body(req)));
         const match = /^\/api\/robots\/([^/]+)(\/token)?$/.exec(path);
         if (match && method === 'PATCH' && !match[2]) return json(200, await village.updateRobot(owner.id, match[1], await body(req)));
         if (match && method === 'DELETE' && !match[2]) { await village.deleteRobot(owner.id, match[1]); return json(200, { ok: true }); }
