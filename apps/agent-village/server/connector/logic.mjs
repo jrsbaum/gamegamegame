@@ -3,6 +3,11 @@ const clean = value => typeof value === 'string' && value.length > 0 && value.le
 export function sanitizeEvent(provider, raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   if (provider === 'codex') {
+    if (raw.hook_event_name) {
+      const event = { session_id: clean(raw.session_id), turn_id: clean(raw.turn_id), hook_event_name: clean(raw.hook_event_name) };
+      for (const key of ['tool_name', 'tool_use_id', 'stop_reason']) if (clean(raw[key])) event[key] = raw[key];
+      return event.session_id && event.hook_event_name ? event : null;
+    }
     const params = raw.params && typeof raw.params === 'object' ? raw.params : {};
     const item = params.item && typeof params.item === 'object' ? params.item : {};
     const status = params.status && typeof params.status === 'object' ? params.status : {};

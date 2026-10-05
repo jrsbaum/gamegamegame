@@ -10,14 +10,27 @@ export function normalizeEvent(provider, raw) {
   if (!raw || typeof raw !== 'object') return null;
   let sessionId, runId, action, toolId, name;
   if (provider === 'codex') {
+    if (raw.hook_event_name) {
+      sessionId = raw.session_id;
+      runId = raw.turn_id;
+      name = raw.hook_event_name;
+      if (name === 'SessionStart' || name === 'UserPromptSubmit') action = 'start';
+      if (name === 'PreToolUse') { action = /^(Read|Search|Grep|Glob)$/i.test(raw.tool_name || '') ? 'readStart' : 'toolStart'; toolId = raw.tool_use_id; }
+      if (name === 'PostToolUse') { action = 'toolEnd'; toolId = raw.tool_use_id; }
+      if (name === 'PermissionRequest') action = 'wait';
+      if (name === 'Stop') action = raw.stop_reason === 'error' ? 'error' : 'finish';
+      if (name === 'SessionEnd') action = 'disconnect';
+    }
     const p = raw.params || {};
-    sessionId = p.threadId;
-    runId = p.turnId || p.turn?.id;
-    name = raw.method;
-    if (name === 'turn/started') action = 'start';
-    if (name === 'turn/completed') action = ({completed:'finish',interrupted:'interrupt',failed:'error'})[p.turn?.status];
-    if (name === 'thread/status/changed' && p.status?.type === 'active') {
-      action = Array.isArray(p.status.activeFlags) && p.status.activeFlags.some(f => f === 'waitingOnApproval' || f === 'waitingOnUserInput') ? 'wait' : 'resume';
+    if (!raw.hook_event_name) {
+      sessionId = p.threadId;
+      runId = p.turnId || p.turn?.id;
+      name = raw.method;
+      if (name === 'turn/started') action = 'start';
+      if (name === 'turn/completed') action = ({completed:'finish',interrupted:'interrupt',failed:'error'})[p.turn?.status];
+      if (name === 'thread/status/changed' && p.status?.type === 'active') {
+        action = Array.isArray(p.status.activeFlags) && p.status.activeFlags.some(f => f === 'waitingOnApproval' || f === 'waitingOnUserInput') ? 'wait' : 'resume';
+      }
     }
     if (['commandExecution','fileChange','mcpToolCall','dynamicToolCall','webSearch'].includes(p.item?.type)) {
       if (name === 'item/started') action = p.item.type === 'webSearch' ? 'readStart' : 'toolStart';

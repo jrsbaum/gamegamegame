@@ -80,3 +80,12 @@ test('ROBOT-02/08: provider adapters discard prompts and map documented events',
   assert.equal(normalizeEvent('unknown', {}), null);
   assert.equal(normalizeEvent('claude', { session_id: 'x', hook_event_name: 'Unknown' }), null);
 });
+
+test('CONN-05: Codex lifecycle hooks map to the existing reducer without private fields', () => {
+  const robots = createRobots([{ id: 'codex-hook', ownerId: 'owner', provider: 'codex', sessionId: 'hook-session', label: 'Codex', privacy: 'none' }]);
+  assert.equal(applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', hook_event_name: 'SessionStart' } )).status, 'working');
+  assert.equal(applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', turn_id: 'turn', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tool', tool_input: { command: 'secret' } })).status, 'tool');
+  assert.equal(JSON.stringify(normalizeEvent('codex', { session_id: 'hook-session', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tool', tool_input: { command: 'secret' } })).includes('secret'), false);
+  assert.equal(applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', turn_id: 'turn', hook_event_name: 'PostToolUse', tool_use_id: 'tool' })).status, 'working');
+  assert.equal(applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', hook_event_name: 'Stop' })).status, 'completed');
+});
