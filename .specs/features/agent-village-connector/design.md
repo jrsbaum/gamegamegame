@@ -27,7 +27,7 @@ Codex / Claude hook ──> collector allowlist ──> POST /api/events
 | --- | --- | --- |
 | Pairing state | `server/village.mjs` | `createPairing`, `exchangePairing`, pending session binding |
 | Pairing routes | `server/http.mjs` | `POST /api/pairings`, `POST /api/pairings/exchange` |
-| Shell/installer assets | `server/connector.mjs`, `server/http.mjs` | `GET /install.ps1`, `GET /install.sh`, `GET /connector/install.mjs`, `GET /connector/collector.mjs` |
+| Shell/installer assets | `server/connector/`, `server/http.mjs` | `GET /install.ps1`, `GET /install.sh`, `GET /connector/install.mjs`, `GET /connector/collector.mjs` |
 | Browser wizard | `web/main.ts`, `web/types.ts`, `web/styles.css` | provider/shell selection, command copy, pairing status |
 | Server tests | `tests/village.test.mjs`, `tests/http.test.mjs` | expiry, one-use, binding, privacy |
 | Connector tests | `tests/connector.test.mjs` | allowlist, sequence lock, hook merge and uninstall |
