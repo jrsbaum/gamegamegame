@@ -43,7 +43,7 @@ T1 → T2 → T3 → T4
 
 **Status**: ✅ Done
 **What**: Serve PowerShell/POSIX wrappers, Node installer, privacy allowlist collector, atomic sequence lock, hook merge and uninstall metadata.
-**Where**: `apps/agent-village/server/connector.mjs`, `apps/agent-village/server/http.mjs`, `apps/agent-village/tests/connector.test.mjs`.
+**Where**: `apps/agent-village/server/connector/`, `apps/agent-village/server/http.mjs`, `apps/agent-village/tests/connector.test.mjs`.
 **Depends on**: T1.
 **Requirement**: CONN-05, CONN-10, CONN-11, CONN-12.
 **Tests**: connector unit tests for sanitized payloads, hook preservation, duplicate prevention, malformed JSON refusal and one-use exchange.
