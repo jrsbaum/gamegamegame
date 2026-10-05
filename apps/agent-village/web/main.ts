@@ -52,7 +52,13 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
 function setView(next: 'village' | 'office') {
   view = next; world?.setView(view);
   app.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.view === view)));
-  el('scene-note').textContent = view === 'village' ? 'O escritório fica no centro da vila.' : 'Cada mesa tem um dono. Cada robô tem um chat.';
+  const onboarding = view === 'office' && !me;
+  el('scene-note').textContent = onboarding ? 'Abra sua conta para entrar nesta mesa.' : view === 'village' ? 'O escritório fica no centro da vila.' : 'Cada mesa tem um dono. Cada robô tem um chat.';
+  if (snapshot) renderScene();
+  if (!me) {
+    renderAccount();
+    if (onboarding) requestAnimationFrame(() => el('account-panel').scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }
 }
 function select(next: Selection) { selection = next; world?.select(next); renderSelection(); renderRoster(); }
 function renderSelection() {
@@ -78,10 +84,11 @@ function renderRoster() {
 function renderScene() {
   if (!snapshot) return;
   const active = snapshot.robots.filter(r => ['working', 'reading', 'tool', 'waiting'].includes(r.status)).length;
+  const onboarding = view === 'office' && !me;
   el('world-count').textContent = `${snapshot.members.length} moradores · ${snapshot.robots.length} chats · ${active} em atividade`;
-  el('mode-label').textContent = simulated ? 'Demonstração simulada' : 'Nossa vila';
-  el('demo-controls').hidden = !simulated;
-  el('honest-note').textContent = simulated ? 'Pessoas e eventos fictícios. Esta demonstração não acompanha nenhuma conta real.' : 'Os estados são o último sinal recebido. Conecte um coletor próprio para enviar eventos dos seus chats.';
+  el('mode-label').textContent = onboarding ? 'Conecte seu agente' : simulated ? 'Demonstração simulada' : 'Nossa vila';
+  el('demo-controls').hidden = !simulated || onboarding;
+  el('honest-note').textContent = onboarding ? 'Esta é uma prévia da vila. Entre ou crie sua conta para abrir sua mesa e conectar Codex ou Claude.' : simulated ? 'Pessoas e eventos fictícios. Esta demonstração não acompanha nenhuma conta real.' : 'Os estados são o último sinal recebido. Conecte um coletor próprio para enviar eventos dos seus chats.';
   const mode = app.querySelector<HTMLButtonElement>('[data-action="mode"]')!;
   mode.hidden = !me; mode.textContent = simulated ? 'Voltar à nossa vila' : 'Ver demonstração';
   el('demo-step').textContent = `${step} / ${snapshot.totalSteps ?? 20} sinais`;
@@ -92,7 +99,10 @@ function renderScene() {
 }
 function authPanel() {
   const creating = authMode === 'register';
-  return `<h3>${creating ? 'Reserve seu cantinho' : 'Entre na nossa vila'}</h3><p class="muted">Sua conta é só desta vila. Peça o convite a quem chamou a turma.</p><form data-form="auth"><label>Nome de acesso<input name="username" autocomplete="username" minlength="3" maxlength="24" pattern="[a-z0-9_-]+" required placeholder="ex.: renatin"></label>${creating ? '<label>Como a turma te chama<input name="displayName" maxlength="32" required autocomplete="nickname"></label>' : ''}<label>Senha<input name="password" type="password" autocomplete="${creating ? 'new-password' : 'current-password'}" minlength="${creating ? 10 : 1}" maxlength="128" required></label>${creating ? '<label>Código de convite<input name="inviteCode" type="password" required autocomplete="off"></label>' : ''}<button class="primary" type="submit">${creating ? 'Criar meu cantinho' : 'Entrar'}</button></form><button class="text-button" data-action="auth-mode">${creating ? 'Já tenho conta' : 'Quero criar meu cantinho'}</button>`;
+  const onboarding = view === 'office';
+  const title = onboarding ? (creating ? 'Reserve seu cantinho real' : 'Abra seu escritório real') : creating ? 'Reserve seu cantinho' : 'Entre na nossa vila';
+  const description = onboarding ? 'Entre ou crie uma conta para sair da demonstração e conectar seu Codex ou Claude.' : 'Sua conta é só desta vila. Peça o convite a quem chamou a turma.';
+  return `${onboarding ? '<div class="onboarding-callout"><p class="eyebrow">Onboarding da vila</p><strong>Conecte seu agente de verdade</strong><p class="muted">A demonstração fica aqui só como prévia. Sua mesa real começa depois do acesso.</p></div>' : ''}<h3>${title}</h3><p class="muted">${description}</p><form data-form="auth"><label>Nome de acesso<input name="username" autocomplete="username" minlength="3" maxlength="24" pattern="[a-z0-9_-]+" required placeholder="ex.: renatin"></label>${creating ? '<label>Como a turma te chama<input name="displayName" maxlength="32" required autocomplete="nickname"></label>' : ''}<label>Senha<input name="password" type="password" autocomplete="${creating ? 'new-password' : 'current-password'}" minlength="${creating ? 10 : 1}" maxlength="128" required></label>${creating ? '<label>Código de convite<input name="inviteCode" type="password" required autocomplete="off"></label>' : ''}<button class="primary" type="submit">${creating ? 'Criar meu cantinho' : 'Entrar'}</button></form><button class="text-button" data-action="auth-mode">${creating ? 'Já tenho conta' : 'Quero criar meu cantinho'}</button>`;
 }
 function installCommand(current: Pairing) {
   const base = window.location.origin;
@@ -117,7 +127,13 @@ function robotEditor(robot: OwnRobot) {
   return `<details class="robot-editor"><summary>${esc(robot.label)} <span>${esc(robot.provider)}</span></summary><form data-form="robot-edit" data-id="${esc(robot.id)}"><label>Nome do robô<input name="label" value="${esc(robot.label)}" maxlength="32" required></label><label>O que os amigos veem<select name="privacy"><option value="none" ${robot.privacy === 'none' ? 'selected' : ''}>Não compartilhar · só estado</option><option value="title" ${robot.privacy === 'title' ? 'selected' : ''}>Compartilhar título</option><option value="description" ${robot.privacy === 'description' ? 'selected' : ''}>Compartilhar título e descrição</option></select></label><label>Título autorizado<input name="title" maxlength="120" value="${esc(robot.title)}"></label><label>Descrição autorizada<textarea name="description" maxlength="280" rows="2">${esc(robot.description)}</textarea></label><p class="small-help">Você escolhe estes textos. Nenhum prompt é copiado automaticamente.</p><button class="primary" type="submit">Salvar compartilhamento</button></form><p class="small-help">${sessionNote}</p><div class="robot-actions"><button class="quiet" data-action="rotate" data-id="${esc(robot.id)}">Gerar novo token</button><button class="text-button danger" data-action="delete" data-id="${esc(robot.id)}">Remover robô</button></div></details>`;
 }
 function renderAccount() {
-  if (!me) { el('account-panel').innerHTML = authPanel(); return; }
+  if (!me) {
+    const panel = el('account-panel');
+    panel.classList.toggle('is-onboarding', view === 'office');
+    panel.innerHTML = authPanel();
+    return;
+  }
+  el('account-panel').classList.remove('is-onboarding');
   el('account-panel').innerHTML = `<div class="account-heading"><h3>O cantinho de ${esc(me.account.displayName)}</h3><button class="text-button" data-action="logout">Sair</button></div><details class="my-desk"><summary>Minha mesa e meus robôs</summary><form data-form="desk"><label>Tamanho da mesa<select name="deskSize">${Object.entries(sizeLabels).map(([value, label]) => `<option value="${value}" ${me!.account.deskSize === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><button class="quiet" type="submit">Salvar mesa</button></form><div class="own-robots">${me.robots.map(robotEditor).join('')}</div>${pairingWizard()}${lastToken ? `<div class="token-note"><h4>Guarde o token deste robô</h4><p>Ele aparece só agora. Configure no seu coletor e mantenha em segredo.</p><textarea aria-label="Token do coletor" readonly rows="3" spellcheck="false">${esc(lastToken.token)}</textarea><button class="quiet" data-action="hide-token">Já guardei · ocultar</button></div>` : ''}<p class="small-help">Até 12 chats. O conector usa o login nativo do seu agente e um token separado desta vila.</p></details>`;
   if (lastToken || pairing) el('account-panel').querySelector<HTMLDetailsElement>('.my-desk')!.open = true;
 }
