@@ -29,10 +29,18 @@ const ownerRobot = (state, ownerId, id) => {
   if (!robot) throw new VillageError(404, 'Robô não encontrado.');
   return robot;
 };
+const ownerConnection = (state, ownerId, id) => {
+  const connection = state.connections.find(c => c.id === id && c.ownerId === ownerId);
+  if (!connection) throw new VillageError(404, 'Conexão não encontrada.');
+  return connection;
+};
 const purgePairings = (state, now) => {
-  const expired = new Set(state.pairings.filter(pairing => pairing.expiresAt <= now).map(pairing => pairing.robotId));
+  const expired = new Set(state.pairings.filter(pairing => pairing.expiresAt <= now).map(pairing => pairing.connectionId ?? pairing.robotId));
   if (!expired.size) return;
-  state.pairings = state.pairings.filter(pairing => !expired.has(pairing.robotId));
+  state.pairings = state.pairings.filter(pairing => !expired.has(pairing.connectionId ?? pairing.robotId));
+  state.connections = state.connections.filter(connection => !expired.has(connection.id) || connection.provisioned);
+  // Pairings created by the previous release had a pending robot instead of a
+  // connection. Keep their cleanup behavior during the migration window.
   state.robots = state.robots.filter(robot => !expired.has(robot.id) || robot.provisioned);
 };
 
@@ -44,15 +52,29 @@ export class JsonStore {
       state = JSON.parse(await readFile(file, 'utf8'));
       if (state.version !== 1 || !Array.isArray(state.accounts) || !Array.isArray(state.sessions) || !Array.isArray(state.robots)) throw Error('Formato de vila inválido');
       if (!Array.isArray(state.pairings)) state.pairings = [];
+      if (!Array.isArray(state.connections)) state.connections = [];
       for (const robot of state.robots) {
-        if (['working', 'reading', 'tool', 'waiting'].includes(robot.status)) robot.status = 'offline';
+        if (['working', 'reading', 'tool', 'waiting'].includes(robot.status)) { robot.status = 'offline'; robot.offlineReason = 'restart'; }
         robot.tools = [];
         robot.pairingId ??= null;
         robot.provisioned ??= true;
+        robot.connectionId ??= robot.id;
+        robot.parentSessionId ??= null;
+        robot.parentRobotId ??= null;
+        if (!state.connections.some(connection => connection.id === robot.connectionId)) {
+          state.connections.push({
+            id: robot.connectionId, ownerId: robot.ownerId, provider: robot.provider,
+            label: robot.label, defaultPrivacy: robot.privacy ?? 'none', privacy: robot.privacy ?? 'none',
+            connectorHash: robot.connectorHash, provisioned: robot.provisioned,
+            pairingId: robot.pairingId ?? null, sequence: robot.sequence ?? 0,
+            createdAt: null, lastSignalAt: robot.lastSignalAt ?? null, legacy: true,
+          });
+        }
       }
+      for (const pairing of state.pairings) pairing.connectionId ??= pairing.robotId;
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
-      state = { version: 1, accounts: [], sessions: [], robots: [], pairings: [] };
+      state = { version: 1, accounts: [], sessions: [], robots: [], pairings: [], connections: [] };
     }
     return new JsonStore(file, state, beforePersist);
   }
@@ -82,8 +104,10 @@ export class JsonStore {
 export class Village {
   constructor(store, { inviteCode, now = Date.now } = {}) {
     if (typeof inviteCode !== 'string' || inviteCode.length < 8) throw Error('INVITE_CODE precisa ter pelo menos 8 caracteres');
-    this.store = store; this.inviteCode = inviteCode; this.now = now; this.presence = new Map();
+    this.store = store; this.inviteCode = inviteCode; this.now = now; this.presence = new Map(); this.listeners = new Set();
   }
+  subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  notify(ownerId) { for (const listener of this.listeners) { try { listener(ownerId); } catch { /* observers cannot break the store */ } } }
   authenticate(rawToken) {
     if (typeof rawToken !== 'string' || rawToken.length !== 64) throw new VillageError(401, 'Entre na sua conta.');
     const session = this.store.state.sessions.find(s => s.tokenHash === hash(rawToken) && s.expiresAt > this.now());
@@ -146,26 +170,28 @@ export class Village {
       if (owned.length >= 12) throw new VillageError(409, 'Limite de 12 robôs por morador.');
       if (owned.some(r => r.provider === input.provider && r.sessionId === sessionId)) throw new VillageError(409, 'Este chat já tem um robô.');
       const raw = token();
-      const robot = createRobots([{ id: randomUUID(), ownerId, provider: input.provider, sessionId, label, title, description, privacy: 'none', connectorHash: hash(raw), sequence: 0, simulated: false, pairingId: null, provisioned: true }])[0];
+      const connectionId = randomUUID();
+      const robot = createRobots([{ id: randomUUID(), ownerId, connectionId, provider: input.provider, sessionId, label, title, description, privacy: 'none', connectorHash: hash(raw), sequence: 0, simulated: false, pairingId: null, provisioned: true }])[0];
+      state.connections.push({ id: connectionId, ownerId, provider: input.provider, label, defaultPrivacy: 'none', privacy: 'none', connectorHash: hash(raw), provisioned: true, pairingId: null, sequence: 0, createdAt: this.now(), lastSignalAt: null, legacy: true });
       state.robots.push(robot);
       return { robot: this.ownRobot(robot), token: raw };
     });
   }
   async createPairing(ownerId, input) {
-    shape(input, ['provider', 'label']);
+    shape(input, ['provider', 'label', 'privacy', 'defaultPrivacy']);
     if (!['codex', 'claude'].includes(input.provider)) invalid();
     const label = text(typeof input.label === 'string' ? input.label.trim() : input.label, 1, 32);
+    const privacy = input.defaultPrivacy ?? input.privacy ?? 'none';
+    if (!['none', 'title', 'description'].includes(privacy)) invalid();
     return this.store.transact(state => {
       const now = this.now();
       purgePairings(state, now);
       if (!state.accounts.some(a => a.id === ownerId)) throw new VillageError(404, 'Morador não encontrado.');
-      if (state.robots.filter(r => r.ownerId === ownerId).length >= 12) throw new VillageError(409, 'Limite de 12 robôs por morador.');
-      const id = randomUUID(), rawCode = pairingCode(), seed = token();
-      const robot = createRobots([{ id: randomUUID(), ownerId, provider: input.provider, sessionId: null, label, title: '', description: '', privacy: 'none', connectorHash: hash(seed), sequence: 0, simulated: false, pairingId: id, provisioned: false }])[0];
-      robot.status = 'pending';
-      state.robots.push(robot);
-      state.pairings.push({ id, robotId: robot.id, ownerId, provider: input.provider, pairingHash: hash(rawCode), expiresAt: now + PAIRING_MS });
-      return { pairing: { id, code: rawCode, expiresAt: now + PAIRING_MS, provider: input.provider, label }, robot: this.ownRobot(robot) };
+      const id = randomUUID(), rawCode = pairingCode();
+      const connection = { id: randomUUID(), ownerId, provider: input.provider, label, defaultPrivacy: privacy, privacy, connectorHash: null, provisioned: false, pairingId: id, sequence: 0, createdAt: now, lastSignalAt: null };
+      state.connections.push(connection);
+      state.pairings.push({ id, connectionId: connection.id, ownerId, provider: input.provider, pairingHash: hash(rawCode), expiresAt: now + PAIRING_MS });
+      return { pairing: { id, code: rawCode, expiresAt: now + PAIRING_MS, provider: input.provider, label }, connection: this.ownConnection(connection) };
     });
   }
   async exchangePairing(rawCode) {
@@ -182,19 +208,69 @@ export class Village {
       purgePairings(state, now);
       const pairing = state.pairings.find(candidate => safeEqual(candidate.pairingHash, hash(code)));
       if (!pairing) throw new VillageError(410, 'Código expirado ou inválido. Gere um novo código na vila.');
-      const robot = state.robots.find(candidate => candidate.id === pairing.robotId && !candidate.provisioned);
-      if (!robot) throw new VillageError(410, 'Código expirado ou inválido. Gere um novo código na vila.');
+      const connection = state.connections.find(candidate => candidate.id === (pairing.connectionId ?? pairing.robotId) && !candidate.provisioned);
+      if (!connection) {
+        // Old pairings point at a pending robot. They are upgraded in place so
+        // a release can be deployed without asking the owner to reinstall.
+        const legacy = state.robots.find(candidate => candidate.id === pairing.robotId && !candidate.provisioned);
+        if (!legacy) throw new VillageError(410, 'Código expirado ou inválido. Gere um novo código na vila.');
+        const rawToken = token();
+        legacy.connectorHash = hash(rawToken); legacy.provisioned = true; legacy.status = 'idle'; legacy.pairingId = null;
+        const migrated = state.connections.find(candidate => candidate.id === legacy.connectionId) ?? { id: legacy.connectionId, ownerId: legacy.ownerId, provider: legacy.provider, label: legacy.label, defaultPrivacy: legacy.privacy ?? 'none', privacy: legacy.privacy ?? 'none', sequence: legacy.sequence ?? 0, createdAt: now, lastSignalAt: null, legacy: true };
+        migrated.connectorHash = hash(rawToken); migrated.provisioned = true; migrated.pairingId = null;
+        if (!state.connections.some(candidate => candidate.id === migrated.id)) state.connections.push(migrated);
+        state.pairings = state.pairings.filter(candidate => candidate.id !== pairing.id);
+        return { connection: this.ownConnection(migrated), robot: this.ownRobot(legacy), token: rawToken };
+      }
       const rawToken = token();
-      robot.connectorHash = hash(rawToken);
-      robot.provisioned = true;
-      robot.status = 'idle';
-      robot.pairingId = null;
+      connection.connectorHash = hash(rawToken);
+      connection.provisioned = true;
+      connection.pairingId = null;
+      const pendingLegacy = state.robots.find(candidate => candidate.id === connection.id && !candidate.provisioned);
+      if (pendingLegacy) {
+        pendingLegacy.connectorHash = hash(rawToken);
+        pendingLegacy.provisioned = true;
+        pendingLegacy.status = 'idle';
+        pendingLegacy.pairingId = null;
+        connection.legacy = true;
+      }
       state.pairings = state.pairings.filter(candidate => candidate.id !== pairing.id);
-      return { robot: this.ownRobot(robot), token: rawToken };
+      return { connection: this.ownConnection(connection), ...(pendingLegacy ? { robot: this.ownRobot(pendingLegacy) } : {}), token: rawToken };
     });
   }
+  ownConnection(connection) {
+    const privacy = connection.defaultPrivacy ?? connection.privacy ?? 'none';
+    return { id: connection.id, provider: connection.provider, label: connection.label, privacy, defaultPrivacy: privacy, provisioned: Boolean(connection.provisioned), installed: Boolean(connection.provisioned), lastSignalAt: connection.lastSignalAt ?? null };
+  }
   ownRobot(robot) {
-    return { ...publicRobot(robot), sessionId: robot.sessionId, privacy: robot.privacy, title: robot.title, description: robot.description };
+    return { ...publicRobot(robot), connectionId: robot.connectionId ?? null, sessionId: robot.sessionId, parentSessionId: robot.parentSessionId ?? null, parentRobotId: robot.parentRobotId ?? null, privacy: robot.privacy, title: robot.title, description: robot.description };
+  }
+  async updateConnection(ownerId, id, input) {
+    shape(input, ['privacy', 'defaultPrivacy', 'label']);
+    const requestedPrivacy = input.defaultPrivacy ?? input.privacy;
+    if (requestedPrivacy !== undefined && !['none', 'title', 'description'].includes(requestedPrivacy)) invalid();
+    if ('label' in input) text(typeof input.label === 'string' ? input.label.trim() : input.label, 1, 32);
+    return this.store.transact(state => {
+      const connection = ownerConnection(state, ownerId, id);
+      if (requestedPrivacy !== undefined) connection.defaultPrivacy = requestedPrivacy;
+      if ('label' in input) connection.label = input.label.trim();
+      return this.ownConnection(connection);
+    });
+  }
+  async rotateConnectionToken(ownerId, id) {
+    return this.store.transact(state => {
+      const connection = ownerConnection(state, ownerId, id), raw = token();
+      connection.connectorHash = hash(raw); connection.sequence = 0;
+      return { token: raw };
+    });
+  }
+  deleteConnection(ownerId, id) {
+    return this.store.transact(state => {
+      ownerConnection(state, ownerId, id);
+      state.connections = state.connections.filter(connection => connection.id !== id);
+      state.robots = state.robots.filter(robot => robot.connectionId !== id && robot.id !== id);
+      state.pairings = state.pairings.filter(pairing => (pairing.connectionId ?? pairing.robotId) !== id);
+    });
   }
   async updateRobot(ownerId, id, input) {
     shape(input, ['privacy', 'title', 'description', 'label']);
@@ -203,31 +279,78 @@ export class Village {
     return this.store.transact(state => { const robot = ownerRobot(state, ownerId, id); Object.assign(robot, input); return this.ownRobot(robot); });
   }
   deleteRobot(ownerId, id) {
-    return this.store.transact(state => { ownerRobot(state, ownerId, id); state.robots = state.robots.filter(r => r.id !== id); state.pairings = state.pairings.filter(pairing => pairing.robotId !== id); });
+    return this.store.transact(state => {
+      const robot = ownerRobot(state, ownerId, id);
+      state.robots = state.robots.filter(r => r.id !== id);
+      state.pairings = state.pairings.filter(pairing => (pairing.connectionId ?? pairing.robotId) !== (robot.connectionId ?? id));
+      const connection = state.connections.find(candidate => candidate.id === robot.connectionId);
+      if (connection?.legacy) state.connections = state.connections.filter(candidate => candidate.id !== connection.id);
+    });
   }
   rotateToken(ownerId, id) {
-    return this.store.transact(state => { const robot = ownerRobot(state, ownerId, id), raw = token(); robot.connectorHash = hash(raw); robot.sequence = 0; return { token: raw }; });
+    return this.store.transact(state => { const robot = ownerRobot(state, ownerId, id), raw = token(); robot.connectorHash = hash(raw); robot.sequence = 0; const connection = state.connections.find(candidate => candidate.id === robot.connectionId); if (connection) { connection.connectorHash = hash(raw); connection.sequence = 0; } return { token: raw }; });
   }
   async ingest(rawToken, input) {
     shape(input, ['sequence', 'event']);
     if (!Number.isSafeInteger(input.sequence) || input.sequence < 1) invalid();
-    return this.store.transact(state => {
+    const result = await this.store.transact(state => {
       if (typeof rawToken !== 'string' || rawToken.length !== 64) throw new VillageError(401, 'Token do robô inválido.');
-      const robot = state.robots.find(r => r.connectorHash === hash(rawToken));
-      if (!robot) throw new VillageError(401, 'Token do robô inválido.');
-      const event = normalizeEvent(robot.provider, input.event);
-      if (!event || (robot.sessionId !== null && event.sessionId !== robot.sessionId)) invalid();
-      if (robot.sessionId === null) robot.sessionId = event.sessionId;
-      if (input.sequence <= robot.sequence) return { accepted: false, status: robot.status };
+      let connection = state.connections.find(candidate => candidate.connectorHash === hash(rawToken));
+      let legacyRobot = null;
+      if (!connection) {
+        legacyRobot = state.robots.find(r => r.connectorHash === hash(rawToken));
+        if (legacyRobot) connection = state.connections.find(candidate => candidate.id === legacyRobot.connectionId) ?? legacyRobot;
+      }
+      if (!connection) throw new VillageError(401, 'Token da conexão inválido.');
+      if (!connection.provisioned) throw new VillageError(401, 'Token da conexão inválido.');
+      const event = normalizeEvent(connection.provider, input.event);
+      if (!event) invalid();
+      const legacyMode = Boolean(connection.legacy);
+      if (legacyMode) {
+        legacyRobot ??= state.robots.find(candidate => candidate.connectionId === connection.id && candidate.provider === event.provider);
+        if (legacyRobot && legacyRobot.sessionId !== event.sessionId) invalid();
+      }
+      if (input.sequence <= (connection.sequence ?? 0)) {
+        const repeated = state.robots.find(r => r.connectionId === connection.id && r.provider === event.provider && r.sessionId === event.sessionId);
+        return { accepted: false, status: repeated?.status ?? 'idle', robotId: repeated?.id ?? null, spawned: false };
+      }
+      let robot = state.robots.find(candidate => candidate.connectionId === connection.id && candidate.provider === event.provider && candidate.sessionId === event.sessionId);
+      let spawned = false;
+      if (!robot) {
+        // New connections have no robot rows at pairing time. The first valid
+        // event creates exactly one row inside this serial transaction.
+        const siblingCount = state.robots.filter(candidate => candidate.connectionId === connection.id).length;
+        const label = siblingCount ? `${connection.label} ${siblingCount + 1}`.slice(0, 32) : connection.label;
+        const parent = event.parentSessionId && state.robots.find(candidate => candidate.connectionId === connection.id && candidate.sessionId === event.parentSessionId);
+        robot = createRobots([{ id: randomUUID(), ownerId: connection.ownerId, connectionId: connection.id, provider: connection.provider, sessionId: event.sessionId, parentSessionId: event.parentSessionId ?? null, parentRobotId: parent?.id ?? null, label, title: '', description: '', privacy: connection.defaultPrivacy ?? connection.privacy ?? 'none', connectorHash: null, sequence: 0, simulated: false, pairingId: null, provisioned: true }])[0];
+        state.robots.push(robot);
+        spawned = true;
+      } else if (event.parentSessionId && !robot.parentSessionId) {
+        robot.parentSessionId = event.parentSessionId;
+        const parent = state.robots.find(candidate => candidate.connectionId === connection.id && candidate.sessionId === event.parentSessionId);
+        robot.parentRobotId = parent?.id ?? null;
+      }
+      if (robot.offlineReason === 'restart') { robot.offlineReason = null; robot.status = 'idle'; }
+      for (const child of state.robots) {
+        if (child.connectionId === connection.id && child.parentSessionId === robot.sessionId && !child.parentRobotId) child.parentRobotId = robot.id;
+      }
+      // Compatibility path for a pre auto-spawn robot: its token lives on the
+      // robot row and its connection was synthesized at startup.
+      if (legacyRobot && robot.id !== legacyRobot.id && legacyRobot.sessionId === event.sessionId) robot = legacyRobot;
       const accepted = Boolean(applyEvent([robot], event));
+      connection.sequence = input.sequence;
+      connection.lastSignalAt = this.now();
       robot.sequence = input.sequence;
       if (accepted) robot.lastSignalAt = this.now();
-      return { accepted, status: robot.status };
+      return legacyMode ? { accepted, status: robot.status } : { accepted, status: robot.status, robotId: robot.id, spawned };
     });
+    const connection = this.store.state.connections.find(candidate => candidate.connectorHash === hash(rawToken));
+    if (connection) this.notify(connection.ownerId);
+    return result;
   }
   me(ownerId) {
     const account = this.store.state.accounts.find(a => a.id === ownerId);
-    return { account: publicAccount(account), robots: this.store.state.robots.filter(r => r.ownerId === ownerId).map(r => this.ownRobot(r)) };
+    return { account: publicAccount(account), connections: this.store.state.connections.filter(connection => connection.ownerId === ownerId).map(connection => this.ownConnection(connection)), robots: this.store.state.robots.filter(r => r.ownerId === ownerId).map(r => this.ownRobot(r)) };
   }
   snapshot(viewerId) {
     const now = this.now();

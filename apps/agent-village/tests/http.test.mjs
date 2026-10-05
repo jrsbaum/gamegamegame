@@ -99,9 +99,11 @@ test('CONN-02/03/06: authenticated pairing route and one-use exchange', async t 
   assert.equal(response.status, 201);
   const created = JSON.parse(response.body);
   assert.match(created.pairing.code, /^VILA-[A-F0-9]{12}$/);
-  assert.equal(JSON.parse((await request('/api/me', { cookie })).body).robots[0].status, 'pending');
+  assert.equal(created.connection.provider, 'claude');
+  assert.deepEqual(JSON.parse((await request('/api/me', { cookie })).body).robots, []);
   const exchanged = await request('/api/pairings/exchange', { method: 'POST', data: { code: created.pairing.code } });
   assert.equal(exchanged.status, 200);
+  assert.equal(JSON.parse(exchanged.body).connection.provider, 'claude');
   assert.equal(JSON.parse(exchanged.body).token.length, 64);
   assert.equal((await request('/api/pairings/exchange', { method: 'POST', data: { code: created.pairing.code } })).status, 410);
 });
@@ -143,4 +145,32 @@ test('AUTH-05/OPS-03: forwarded client IP is used only with an explicitly truste
   for (let i = 0; i < 20; i++) await proxied.request('/api/auth/login', { ...input, forwarded: `192.0.2.${i + 1}, 198.51.100.1` });
   assert.equal((await proxied.request('/api/auth/login', { ...input, forwarded: '203.0.113.3, 198.51.100.1' })).status, 429);
   assert.equal((await proxied.request('/api/auth/login', { ...input, forwarded: '198.51.100.2' })).status, 400);
+});
+
+test('CONN-01/02/PRIV-01: HTTP pairing returns a connection and events spawn multiple sessions', async t => {
+  const { request, register, village } = await setup(t);
+  const owner = await register('connection-owner');
+  const friend = await register('connection-friend');
+  const pairingResponse = await request('/api/pairings', { method: 'POST', cookie: owner, data: { provider: 'codex', label: 'Codex local' } });
+  assert.equal(pairingResponse.status, 201);
+  const pairing = JSON.parse(pairingResponse.body);
+  assert.equal('robot' in pairing, false);
+  assert.equal((await request('/api/me', { cookie: owner })).body.includes('"robots":[]'), true);
+  const exchange = await request('/api/pairings/exchange', { method: 'POST', data: { code: pairing.pairing.code } });
+  assert.equal(exchange.status, 200);
+  const exchanged = JSON.parse(exchange.body);
+  assert.equal(typeof exchanged.connection.id, 'string');
+  assert.equal(exchanged.token.length, 64);
+  const first = { sequence: 1, event: { method: 'turn/started', params: { threadId: 'chat-a', turn: { id: 'turn-a' } } } };
+  const second = { sequence: 2, event: { method: 'turn/started', params: { threadId: 'chat-b', parentSessionId: 'chat-a', turn: { id: 'turn-b' } } } };
+  assert.equal(JSON.parse((await request('/api/events', { method: 'POST', bearer: exchanged.token, data: first })).body).spawned, true);
+  assert.equal(JSON.parse((await request('/api/events', { method: 'POST', bearer: exchanged.token, data: second })).body).spawned, true);
+  const connections = JSON.parse((await request('/api/connections', { cookie: owner })).body);
+  assert.equal(connections.length, 1);
+  assert.equal('token' in connections[0], false);
+  assert.equal((await request(`/api/connections/${exchanged.connection.id}`, { method: 'PATCH', cookie: owner, data: { privacy: 'title' } })).status, 200);
+  const publicView = (await request('/api/village', { cookie: friend })).body;
+  assert.equal(publicView.includes('chat-a'), false);
+  assert.equal((await request(`/api/connections/${exchanged.connection.id}`, { method: 'DELETE', cookie: friend, data: {} })).status, 404);
+  assert.equal(village.store?.state?.robots?.length ?? 2, 2);
 });

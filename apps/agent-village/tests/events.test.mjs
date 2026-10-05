@@ -51,10 +51,12 @@ test('ROBOT-08: reading, waiting, resume and terminal states have exact outcomes
   applyEvent(robots, signal('resume'));
   assert.equal(robots[0].status, 'reading');
   for (const [action, status] of [['interrupt', 'interrupted'], ['error', 'error'], ['disconnect', 'offline']]) {
-    applyEvent(robots, signal('start'));
-    applyEvent(robots, signal(action));
-    assert.equal(robots[0].status, status);
-    assert.deepEqual(robots[0].tools, []);
+    const fresh = createRobots([definition]);
+    applyEvent(fresh, signal('start'));
+    applyEvent(fresh, signal(action));
+    assert.equal(fresh[0].status, status);
+    assert.deepEqual(fresh[0].tools, []);
+    assert.equal(applyEvent(fresh, signal('start')), null);
   }
 });
 

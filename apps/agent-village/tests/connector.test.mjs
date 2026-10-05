@@ -21,6 +21,46 @@ test('CONN-10: connector allowlists provider lifecycle fields and drops private 
   assert.deepEqual(codexHook, { session_id: 'session', turn_id: 'turn', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tool' });
 });
 
+test('CONN-03/EDGE-03: connector preserves bounded parent and spawn metadata across sessions', () => {
+  const parent = sanitizeEvent('codex', {
+    session_id: 'child-session', parent_session_id: 'parent-session', hook_event_name: 'SessionStart',
+    agent_id: 'agent-1', agent_type: 'worker', prompt: 'senha: hunter2', token: 'do-not-forward',
+  });
+  assert.deepEqual(parent, {
+    session_id: 'child-session', hook_event_name: 'SessionStart',
+    parent_session_id: 'parent-session', agent_id: 'agent-1', agent_type: 'worker',
+    agent_spawn: { parent_session_id: 'parent-session', agent_id: 'agent-1', agent_type: 'worker' },
+  });
+  assert.equal(JSON.stringify(parent).includes('hunter2'), false);
+  assert.equal(JSON.stringify(parent).includes('do-not-forward'), false);
+
+  const child = sanitizeEvent('codex', {
+    method: 'turn/started', params: {
+      threadId: 'second-session', parentThreadId: 'parent-session',
+      agent: { id: 'agent-2', type: 'worker', session_id: 'second-session' },
+      turn: { id: 'turn-2', status: 'inProgress' }, prompt: 'private transcript',
+    },
+  });
+  assert.equal(child.params.threadId, 'second-session');
+  assert.equal(child.parent_session_id, 'parent-session');
+  assert.equal(child.agent_id, 'agent-2');
+  assert.equal(child.agent_type, 'worker');
+  assert.equal(child.spawned_session_id, 'second-session');
+  assert.deepEqual(child.agent_spawn, { parent_session_id: 'parent-session', session_id: 'second-session', agent_id: 'agent-2', agent_type: 'worker' });
+  assert.equal(JSON.stringify(child).includes('private transcript'), false);
+
+  const claude = sanitizeEvent('claude', {
+    session_id: 'parent-session', hook_event_name: 'SubagentStart',
+    agent_id: 'agent-3', agent_type: 'explorer', child_session_id: 'third-session',
+    parentSessionId: 'parent-session', api_key: 'secret-value',
+  });
+  assert.equal(claude.spawned_session_id, 'third-session');
+  assert.equal(claude.agent_id, 'agent-3');
+  assert.equal(claude.agent_type, 'explorer');
+  assert.equal(JSON.stringify(claude).includes('secret-value'), false);
+  assert.equal(hookEvents('claude').includes('SubagentStart'), true);
+});
+
 test('BUBBLE-01: task hooks send a bounded title and description summary only', () => {
   const event = sanitizeEvent('codex', {
     session_id: 'session', hook_event_name: 'UserPromptSubmit',
@@ -91,6 +131,28 @@ test('CONN-12: concurrent collector processes allocate strictly increasing seque
   const saved = JSON.parse(await readFile(configPath, 'utf8'));
   assert.equal(saved.sequence, 8);
   assert.deepEqual([...new Set(received)].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6, 7, 8]);
+});
+
+test('CONN-03: transient event failure retries the same connection sequence', async t => {
+  const received = [];
+  const server = createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    received.push(JSON.parse(body).sequence);
+    res.writeHead(received.length === 1 ? 503 : 200).end('{}');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => server.close());
+  const dir = await mkdtemp(join(tmpdir(), 'agent-village-connector-retry-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const configPath = join(dir, 'config.json');
+  await writeFile(configPath, JSON.stringify({ endpoint: `http://127.0.0.1:${server.address().port}`, token: 'a'.repeat(64), provider: 'codex', sequence: 0 }));
+  const collector = fileURLToPath(new URL('../server/connector/collector.mjs', import.meta.url));
+  const child = spawn(process.execPath, [collector, '--config', configPath]);
+  child.stdin.end(JSON.stringify({ method: 'turn/started', params: { threadId: 'session-b', turn: { id: 'turn-b' } } }));
+  const exitCode = await new Promise((resolve, reject) => { child.on('close', resolve); child.on('error', reject); });
+  assert.equal(exitCode, 0);
+  assert.deepEqual(received, [1, 1]);
+  assert.equal(JSON.parse(await readFile(configPath, 'utf8')).sequence, 1);
 });
 
 test('CONN-13: collector swallows network failure and exits cleanly', async t => {
