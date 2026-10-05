@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
-import { hookEvents, hookHandler } from './logic.mjs';
+import { hookEvents, hookHandler, validateHookConfig } from './logic.mjs';
 
 const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i], process.argv[i + 1]);
@@ -13,7 +13,7 @@ const atomicWrite = async (path, value) => { const temporary = `${path}.${proces
 const jsonFile = async path => { try { return JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return {}; throw Error(`JSON inválido: ${path}`); } };
 const mergeHooks = async (path, provider, command, robotId) => {
   const config = await jsonFile(path);
-  if ('hooks' in config && (!config.hooks || typeof config.hooks !== 'object' || Array.isArray(config.hooks))) throw Error(`Hooks inválidos: ${path}`);
+  validateHookConfig(config, path);
   config.hooks = config.hooks && typeof config.hooks === 'object' && !Array.isArray(config.hooks) ? config.hooks : {};
   for (const event of hookEvents(provider)) {
     const groups = Array.isArray(config.hooks[event]) ? config.hooks[event] : [];

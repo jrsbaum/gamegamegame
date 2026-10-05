@@ -38,10 +38,17 @@ export function hookEvents(provider) {
   return [];
 }
 
+export function validateHookConfig(config, path = 'hooks') {
+  if (config && Object.prototype.hasOwnProperty.call(config, 'hooks') && (!config.hooks || typeof config.hooks !== 'object' || Array.isArray(config.hooks))) {
+    throw Error(`Hooks inválidos: ${path}`);
+  }
+  return config;
+}
+
 export function hookHandler(provider, event, command, robotId) {
   return {
     hooks: [{
-      type: 'command', command, timeout: 3, statusMessage: 'Enviando sinal para a Vila',
+      type: 'command', command, timeout: 3, statusMessage: `Enviando sinal para a Vila · gamegamegame-agent-village:${robotId}`,
       ...(provider === 'codex' && event !== 'SessionEnd' ? { async: true } : {}),
     }],
   };

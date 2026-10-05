@@ -94,6 +94,7 @@ test('AUTH-04/ROBOT-02/04/05/07: cross-owner HTTP edits fail and collector canno
 test('CONN-02/03/06: authenticated pairing route and one-use exchange', async t => {
   const { request, register } = await setup(t);
   const cookie = await register('pairing-user');
+  assert.equal((await request('/api/pairings', { method: 'POST', cookie, data: { provider: 'codex', label: 'Bad shell', shell: 'fish' } })).status, 400);
   const response = await request('/api/pairings', { method: 'POST', cookie, data: { provider: 'claude', label: 'Claude local' } });
   assert.equal(response.status, 201);
   const created = JSON.parse(response.body);

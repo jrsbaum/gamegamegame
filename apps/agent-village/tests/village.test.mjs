@@ -106,16 +106,19 @@ test('ROBOT-07: rotation and deletion revoke collector tokens', async t => {
 });
 
 test('CONN-02/06/07/08: one-use pairing provisions a pending robot and binds its first session', async t => {
-  const { village } = await setup(t);
+  const { village, store, file } = await setup(t);
   const owner = (await village.register(account())).account;
   const created = await village.createPairing(owner.id, { provider: 'codex', label: 'Meu Codex' });
   assert.match(created.pairing.code, /^VILA-[A-F0-9]{12}$/);
   assert.equal(created.robot.status, 'pending');
   assert.equal(created.robot.sessionId, null);
+  assert.equal((await JsonStore.open(file)).state.pairings.length, 1);
   const exchanged = await village.exchangePairing(created.pairing.code.toLowerCase());
   assert.equal(exchanged.token.length, 64);
   assert.equal(exchanged.robot.status, 'idle');
   assert.equal(exchanged.robot.sessionId, null);
+  assert.equal(store.state.pairings.length, 0);
+  assert.equal((await JsonStore.open(file)).state.pairings.length, 0);
   await assert.rejects(village.exchangePairing(created.pairing.code), { status: 410 });
   const event = { method: 'turn/started', params: { threadId: 'real-thread', turn: { id: 'turn-1' } } };
   assert.deepEqual(await village.ingest(exchanged.token, { sequence: 1, event }), { accepted: true, status: 'working' });
