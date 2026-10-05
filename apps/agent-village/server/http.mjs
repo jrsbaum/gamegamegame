@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { isIP } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { VillageError, SESSION_MS } from './village.mjs';
 import { createRobots, demoRobots, demoEvents, normalizeEvent, applyEvent, publicRobot } from './events.mjs';
 
@@ -13,6 +14,14 @@ const demoMembers = [
   { id: 'demo-renatin', displayName: 'Renatin', deskSize: 'medium', online: true },
   { id: 'demo-julin', displayName: 'Julin', deskSize: 'medium', online: false },
 ];
+const connectorRoot = resolve(fileURLToPath(new URL('./connector', import.meta.url)));
+const connectorAssets = new Map([
+  ['/connector/logic.mjs', ['logic.mjs', 'text/javascript; charset=utf-8']],
+  ['/connector/collector.mjs', ['collector.mjs', 'text/javascript; charset=utf-8']],
+  ['/connector/install.mjs', ['install.mjs', 'text/javascript; charset=utf-8']],
+  ['/install.ps1', ['install.ps1', 'text/plain; charset=utf-8']],
+  ['/install.sh', ['install.sh', 'text/plain; charset=utf-8']],
+]);
 function demo(step) {
   const robots = createRobots(demoRobots.map(r => ({ ...r, ownerId: r.member === 'Jrs' ? 'demo-you' : r.member === 'Renatin' ? 'demo-renatin' : 'demo-julin', simulated: true })));
   for (const sample of demoEvents.slice(0, step)) {
@@ -45,6 +54,13 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
     try {
       const url = new URL(req.url, configuredOrigin), path = url.pathname, method = req.method;
       if (method === 'GET' && path === '/healthz') return json(200, { ok: true, service: 'agent-village' });
+      if (method === 'GET' && connectorAssets.has(path)) {
+        const [filename, contentType] = connectorAssets.get(path);
+        let content = await readFile(resolve(connectorRoot, filename), 'utf8');
+        if (path === '/install.ps1' || path === '/install.sh') content = content.replaceAll('__PUBLIC_ORIGIN__', configuredOrigin);
+        res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
+        return res.end(content);
+      }
       if (path.startsWith('/api/')) {
         res.setHeader('Cache-Control', 'no-store');
         if (method !== 'GET' && req.headers.origin && req.headers.origin !== configuredOrigin) throw new VillageError(403, 'Origem não autorizada.');

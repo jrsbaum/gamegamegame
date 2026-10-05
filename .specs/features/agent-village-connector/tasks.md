@@ -41,6 +41,7 @@ T1 → T2 → T3 → T4
 
 ### T2: Real local collector and shell installers
 
+**Status**: ✅ Done
 **What**: Serve PowerShell/POSIX wrappers, Node installer, privacy allowlist collector, atomic sequence lock, hook merge and uninstall metadata.
 **Where**: `apps/agent-village/server/connector.mjs`, `apps/agent-village/server/http.mjs`, `apps/agent-village/tests/connector.test.mjs`.
 **Depends on**: T1.
