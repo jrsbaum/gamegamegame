@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
+import { isIP } from 'node:net';
 import { VillageError, SESSION_MS } from './village.mjs';
 import { createRobots, demoRobots, demoEvents, normalizeEvent, applyEvent, publicRobot } from './events.mjs';
 
@@ -31,7 +32,7 @@ async function body(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new VillageError(400, 'JSON inválido.'); }
 }
 
-export function createVillageServer(village, { publicOrigin, dist }) {
+export function createVillageServer(village, { publicOrigin, dist, trustProxy = false }) {
   const configuredOrigin = new URL(publicOrigin).origin;
   const secure = configuredOrigin.startsWith('https:');
   const staticRoot = resolve(dist);
@@ -53,7 +54,10 @@ export function createVillageServer(village, { publicOrigin, dist }) {
           return json(200, demo(step));
         }
         if (method === 'POST' && ['/api/auth/login', '/api/auth/register'].includes(path)) {
-          const now = Date.now(), ip = req.socket.remoteAddress;
+          const forwarded = typeof req.headers['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',').at(-1).trim() : '';
+          // Enable only when direct access is blocked and the immediate proxy is trusted.
+          // The rightmost hop prevents a client-supplied prefix from choosing its identity.
+          const now = Date.now(), ip = trustProxy && isIP(forwarded) ? forwarded : req.socket.remoteAddress;
           for (const [key, record] of limits) if (record.resetAt <= now) limits.delete(key);
           const record = limits.get(ip) ?? { count: 0, resetAt: now + 600000 };
           limits.set(ip, record);
