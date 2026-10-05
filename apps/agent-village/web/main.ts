@@ -162,7 +162,17 @@ async function loadDemo() { const next = await api<Snapshot>(`/api/demo?step=${s
 async function loadReal(configuration = false) {
   simulated = false;
   if (configuration || pairing) me = await api<Me>('/api/me');
-  const next = await api<Snapshot>('/api/village'); if (simulated) return; snapshot = next;
+  const next = await api<Snapshot>('/api/village'); if (simulated) return;
+  // The public snapshot intentionally omits connection/session identifiers.
+  // Merge those safe-for-owner fields locally so the owner's roster can group
+  // sessions by connection without exposing private metadata to other viewers.
+  const ownRobots = new Map((me?.robots ?? []).map(robot => [robot.id, robot]));
+  snapshot = { ...next, robots: next.robots.map(robot => {
+    const own = ownRobots.get(robot.id);
+    if (!own) return robot;
+    const connection = connectionList().find(candidate => candidate.id === own.connectionId);
+    return { ...robot, connectionId: own.connectionId, connectionLabel: connection?.label, parentId: own.parentRobotId ?? null };
+  }) };
   if (selection && !snapshot.robots.some(r => r.id === selection!.id) && !snapshot.members.some(m => m.id === selection!.id)) selection = null;
   renderScene(); if (configuration || pairing) renderAccount();
 }
