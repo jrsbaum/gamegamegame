@@ -47,6 +47,16 @@ export const GAME_CATALOG = [
     detail: 'fazenda · mapa · comunidade',
     tone: 'lobby-game-lafarmer',
   },
+  {
+    id: 'agent-village',
+    domain: 'agents.gamegamegame.site',
+    status: 'active',
+    mark: '🤖',
+    title: 'Vila dos Agentes',
+    description: 'Reserve sua mesa, encontre os amigos e acompanhe seus robôs num cantinho em 3D.',
+    detail: 'vila 3D · amigos · agentes',
+    tone: 'lobby-game-lafarmer',
+  },
 ] as const satisfies readonly GameCatalogEntry[];
 
 export type CatalogGame = typeof GAME_CATALOG[number];
