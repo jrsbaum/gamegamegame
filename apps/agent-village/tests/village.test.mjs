@@ -105,6 +105,36 @@ test('ROBOT-07: rotation and deletion revoke collector tokens', async t => {
   assert.deepEqual(village.me(a.id).robots, []);
 });
 
+test('CONN-02/06/07/08: one-use pairing provisions a pending robot and binds its first session', async t => {
+  const { village, store, file } = await setup(t);
+  const owner = (await village.register(account())).account;
+  const created = await village.createPairing(owner.id, { provider: 'codex', label: 'Meu Codex' });
+  assert.match(created.pairing.code, /^VILA-[A-F0-9]{12}$/);
+  assert.equal(created.robot.status, 'pending');
+  assert.equal(created.robot.sessionId, null);
+  assert.equal((await JsonStore.open(file)).state.pairings.length, 1);
+  const exchanged = await village.exchangePairing(created.pairing.code.toLowerCase());
+  assert.equal(exchanged.token.length, 64);
+  assert.equal(exchanged.robot.status, 'idle');
+  assert.equal(exchanged.robot.sessionId, null);
+  assert.equal(store.state.pairings.length, 0);
+  assert.equal((await JsonStore.open(file)).state.pairings.length, 0);
+  await assert.rejects(village.exchangePairing(created.pairing.code), { status: 410 });
+  const event = { method: 'turn/started', params: { threadId: 'real-thread', turn: { id: 'turn-1' } } };
+  assert.deepEqual(await village.ingest(exchanged.token, { sequence: 1, event }), { accepted: true, status: 'working' });
+  assert.equal(village.me(owner.id).robots[0].sessionId, 'real-thread');
+  await assert.rejects(village.ingest(exchanged.token, { sequence: 2, event: { ...event, params: { ...event.params, threadId: 'other-thread' } } }), { status: 400 });
+});
+
+test('CONN-04: expired pairing removes the unprovisioned robot', async t => {
+  const { village, clock } = await setup(t);
+  const owner = (await village.register(account())).account;
+  const created = await village.createPairing(owner.id, { provider: 'claude', label: 'Meu Claude' });
+  clock(created.pairing.expiresAt + 1);
+  await assert.rejects(village.exchangePairing(created.pairing.code), { status: 410 });
+  assert.deepEqual(village.me(owner.id).robots, []);
+});
+
 test('OPS-01: reopening restores configuration/auth and marks active work offline', async t => {
   const { village, file } = await setup(t);
   const session = await village.register(account());

@@ -5,9 +5,11 @@ import { dirname } from 'node:path';
 import { createRobots, normalizeEvent, applyEvent, publicRobot } from './events.mjs';
 
 export const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+export const PAIRING_MS = 10 * 60 * 1000;
 const hash = value => createHash('sha256').update(value).digest('hex');
 const derive = promisify(scrypt);
 const token = () => randomBytes(32).toString('hex');
+const pairingCode = () => `VILA-${randomBytes(6).toString('hex').toUpperCase()}`;
 const safeEqual = (a, b) => timingSafeEqual(Buffer.from(hash(a)), Buffer.from(hash(b)));
 const publicAccount = a => ({ id: a.id, username: a.username, displayName: a.displayName, deskSize: a.deskSize });
 
@@ -27,6 +29,12 @@ const ownerRobot = (state, ownerId, id) => {
   if (!robot) throw new VillageError(404, 'Robô não encontrado.');
   return robot;
 };
+const purgePairings = (state, now) => {
+  const expired = new Set(state.pairings.filter(pairing => pairing.expiresAt <= now).map(pairing => pairing.robotId));
+  if (!expired.size) return;
+  state.pairings = state.pairings.filter(pairing => !expired.has(pairing.robotId));
+  state.robots = state.robots.filter(robot => !expired.has(robot.id) || robot.provisioned);
+};
 
 export class JsonStore {
   constructor(file, state, beforePersist) { this.file = file; this.state = state; this.beforePersist = beforePersist; this.queue = Promise.resolve(); }
@@ -35,13 +43,16 @@ export class JsonStore {
     try {
       state = JSON.parse(await readFile(file, 'utf8'));
       if (state.version !== 1 || !Array.isArray(state.accounts) || !Array.isArray(state.sessions) || !Array.isArray(state.robots)) throw Error('Formato de vila inválido');
+      if (!Array.isArray(state.pairings)) state.pairings = [];
       for (const robot of state.robots) {
         if (['working', 'reading', 'tool', 'waiting'].includes(robot.status)) robot.status = 'offline';
         robot.tools = [];
+        robot.pairingId ??= null;
+        robot.provisioned ??= true;
       }
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
-      state = { version: 1, accounts: [], sessions: [], robots: [] };
+      state = { version: 1, accounts: [], sessions: [], robots: [], pairings: [] };
     }
     return new JsonStore(file, state, beforePersist);
   }
@@ -135,9 +146,51 @@ export class Village {
       if (owned.length >= 12) throw new VillageError(409, 'Limite de 12 robôs por morador.');
       if (owned.some(r => r.provider === input.provider && r.sessionId === sessionId)) throw new VillageError(409, 'Este chat já tem um robô.');
       const raw = token();
-      const robot = createRobots([{ id: randomUUID(), ownerId, provider: input.provider, sessionId, label, title, description, privacy: 'none', connectorHash: hash(raw), sequence: 0, simulated: false }])[0];
+      const robot = createRobots([{ id: randomUUID(), ownerId, provider: input.provider, sessionId, label, title, description, privacy: 'none', connectorHash: hash(raw), sequence: 0, simulated: false, pairingId: null, provisioned: true }])[0];
       state.robots.push(robot);
       return { robot: this.ownRobot(robot), token: raw };
+    });
+  }
+  async createPairing(ownerId, input) {
+    shape(input, ['provider', 'label']);
+    if (!['codex', 'claude'].includes(input.provider)) invalid();
+    const label = text(typeof input.label === 'string' ? input.label.trim() : input.label, 1, 32);
+    return this.store.transact(state => {
+      const now = this.now();
+      purgePairings(state, now);
+      if (!state.accounts.some(a => a.id === ownerId)) throw new VillageError(404, 'Morador não encontrado.');
+      if (state.robots.filter(r => r.ownerId === ownerId).length >= 12) throw new VillageError(409, 'Limite de 12 robôs por morador.');
+      const id = randomUUID(), rawCode = pairingCode(), seed = token();
+      const robot = createRobots([{ id: randomUUID(), ownerId, provider: input.provider, sessionId: null, label, title: '', description: '', privacy: 'none', connectorHash: hash(seed), sequence: 0, simulated: false, pairingId: id, provisioned: false }])[0];
+      robot.status = 'pending';
+      state.robots.push(robot);
+      state.pairings.push({ id, robotId: robot.id, ownerId, provider: input.provider, pairingHash: hash(rawCode), expiresAt: now + PAIRING_MS });
+      return { pairing: { id, code: rawCode, expiresAt: now + PAIRING_MS, provider: input.provider, label }, robot: this.ownRobot(robot) };
+    });
+  }
+  async exchangePairing(rawCode) {
+    if (typeof rawCode !== 'string') invalid();
+    const code = rawCode.trim().toUpperCase();
+    if (code.length < 8 || code.length > 40) invalid();
+    const candidate = this.store.state.pairings.find(pairing => safeEqual(pairing.pairingHash, hash(code)));
+    if (candidate?.expiresAt <= this.now()) {
+      await this.store.transact(state => { purgePairings(state, this.now()); return null; });
+      throw new VillageError(410, 'Código expirado ou inválido. Gere um novo código na vila.');
+    }
+    return this.store.transact(state => {
+      const now = this.now();
+      purgePairings(state, now);
+      const pairing = state.pairings.find(candidate => safeEqual(candidate.pairingHash, hash(code)));
+      if (!pairing) throw new VillageError(410, 'Código expirado ou inválido. Gere um novo código na vila.');
+      const robot = state.robots.find(candidate => candidate.id === pairing.robotId && !candidate.provisioned);
+      if (!robot) throw new VillageError(410, 'Código expirado ou inválido. Gere um novo código na vila.');
+      const rawToken = token();
+      robot.connectorHash = hash(rawToken);
+      robot.provisioned = true;
+      robot.status = 'idle';
+      robot.pairingId = null;
+      state.pairings = state.pairings.filter(candidate => candidate.id !== pairing.id);
+      return { robot: this.ownRobot(robot), token: rawToken };
     });
   }
   ownRobot(robot) {
@@ -150,7 +203,7 @@ export class Village {
     return this.store.transact(state => { const robot = ownerRobot(state, ownerId, id); Object.assign(robot, input); return this.ownRobot(robot); });
   }
   deleteRobot(ownerId, id) {
-    return this.store.transact(state => { ownerRobot(state, ownerId, id); state.robots = state.robots.filter(r => r.id !== id); });
+    return this.store.transact(state => { ownerRobot(state, ownerId, id); state.robots = state.robots.filter(r => r.id !== id); state.pairings = state.pairings.filter(pairing => pairing.robotId !== id); });
   }
   rotateToken(ownerId, id) {
     return this.store.transact(state => { const robot = ownerRobot(state, ownerId, id), raw = token(); robot.connectorHash = hash(raw); robot.sequence = 0; return { token: raw }; });
@@ -163,7 +216,8 @@ export class Village {
       const robot = state.robots.find(r => r.connectorHash === hash(rawToken));
       if (!robot) throw new VillageError(401, 'Token do robô inválido.');
       const event = normalizeEvent(robot.provider, input.event);
-      if (!event || event.sessionId !== robot.sessionId) invalid();
+      if (!event || (robot.sessionId !== null && event.sessionId !== robot.sessionId)) invalid();
+      if (robot.sessionId === null) robot.sessionId = event.sessionId;
       if (input.sequence <= robot.sequence) return { accepted: false, status: robot.status };
       const accepted = Boolean(applyEvent([robot], event));
       robot.sequence = input.sequence;

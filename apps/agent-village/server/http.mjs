@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { isIP } from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { VillageError, SESSION_MS } from './village.mjs';
 import { createRobots, demoRobots, demoEvents, normalizeEvent, applyEvent, publicRobot } from './events.mjs';
 
@@ -13,6 +14,14 @@ const demoMembers = [
   { id: 'demo-renatin', displayName: 'Renatin', deskSize: 'medium', online: true },
   { id: 'demo-julin', displayName: 'Julin', deskSize: 'medium', online: false },
 ];
+const connectorRoot = resolve(fileURLToPath(new URL('./connector', import.meta.url)));
+const connectorAssets = new Map([
+  ['/connector/logic.mjs', ['logic.mjs', 'text/javascript; charset=utf-8']],
+  ['/connector/collector.mjs', ['collector.mjs', 'text/javascript; charset=utf-8']],
+  ['/connector/install.mjs', ['install.mjs', 'text/javascript; charset=utf-8']],
+  ['/install.ps1', ['install.ps1', 'text/plain; charset=utf-8']],
+  ['/install.sh', ['install.sh', 'text/plain; charset=utf-8']],
+]);
 function demo(step) {
   const robots = createRobots(demoRobots.map(r => ({ ...r, ownerId: r.member === 'Jrs' ? 'demo-you' : r.member === 'Renatin' ? 'demo-renatin' : 'demo-julin', simulated: true })));
   for (const sample of demoEvents.slice(0, step)) {
@@ -45,6 +54,13 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
     try {
       const url = new URL(req.url, configuredOrigin), path = url.pathname, method = req.method;
       if (method === 'GET' && path === '/healthz') return json(200, { ok: true, service: 'agent-village' });
+      if (method === 'GET' && connectorAssets.has(path)) {
+        const [filename, contentType] = connectorAssets.get(path);
+        let content = await readFile(resolve(connectorRoot, filename), 'utf8');
+        if (path === '/install.ps1' || path === '/install.sh') content = content.replaceAll('__PUBLIC_ORIGIN__', configuredOrigin);
+        res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' });
+        return res.end(content);
+      }
       if (path.startsWith('/api/')) {
         res.setHeader('Cache-Control', 'no-store');
         if (method !== 'GET' && req.headers.origin && req.headers.origin !== configuredOrigin) throw new VillageError(403, 'Origem não autorizada.');
@@ -68,7 +84,8 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
           return json(path.endsWith('/register') ? 201 : 200, { account: session.account });
         }
         if (method === 'POST' && path === '/api/events') return json(200, await village.ingest(bearerToken(req), await body(req)));
-        if (!['/api/me', '/api/village', '/api/desk', '/api/robots', '/api/auth/logout'].includes(path) && !/^\/api\/robots\/[^/]+(?:\/token)?$/.test(path)) throw new VillageError(404, 'Destino não encontrado.');
+        if (method === 'POST' && path === '/api/pairings/exchange') return json(200, await village.exchangePairing((await body(req)).code));
+        if (!['/api/me', '/api/village', '/api/desk', '/api/robots', '/api/pairings', '/api/auth/logout'].includes(path) && !/^\/api\/robots\/[^/]+(?:\/token)?$/.test(path)) throw new VillageError(404, 'Destino não encontrado.');
         const owner = village.authenticate(cookieToken(req));
         if (method === 'GET' && path === '/api/me') return json(200, village.me(owner.id));
         if (method === 'GET' && path === '/api/village') return json(200, village.snapshot(owner.id));
@@ -79,6 +96,7 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
         }
         if (method === 'PATCH' && path === '/api/desk') return json(200, await village.updateDesk(owner.id, await body(req)));
         if (method === 'POST' && path === '/api/robots') return json(201, await village.createRobot(owner.id, await body(req)));
+        if (method === 'POST' && path === '/api/pairings') return json(201, await village.createPairing(owner.id, await body(req)));
         const match = /^\/api\/robots\/([^/]+)(\/token)?$/.exec(path);
         if (match && method === 'PATCH' && !match[2]) return json(200, await village.updateRobot(owner.id, match[1], await body(req)));
         if (match && method === 'DELETE' && !match[2]) { await village.deleteRobot(owner.id, match[1]); return json(200, { ok: true }); }
