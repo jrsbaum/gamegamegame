@@ -91,6 +91,20 @@ test('AUTH-04/ROBOT-02/04/05/07: cross-owner HTTP edits fail and collector canno
   assert.equal((await request('/api/events', { method: 'POST', bearer: rotated.token, data: events })).status, 401);
 });
 
+test('CONN-02/03/06: authenticated pairing route and one-use exchange', async t => {
+  const { request, register } = await setup(t);
+  const cookie = await register('pairing-user');
+  const response = await request('/api/pairings', { method: 'POST', cookie, data: { provider: 'claude', label: 'Claude local' } });
+  assert.equal(response.status, 201);
+  const created = JSON.parse(response.body);
+  assert.match(created.pairing.code, /^VILA-[A-F0-9]{12}$/);
+  assert.equal(JSON.parse((await request('/api/me', { cookie })).body).robots[0].status, 'pending');
+  const exchanged = await request('/api/pairings/exchange', { method: 'POST', data: { code: created.pairing.code } });
+  assert.equal(exchanged.status, 200);
+  assert.equal(JSON.parse(exchanged.body).token.length, 64);
+  assert.equal((await request('/api/pairings/exchange', { method: 'POST', data: { code: created.pairing.code } })).status, 410);
+});
+
 test('EDGE-01/02/AUTH-05: bad JSON, large body, unknown fields and auth rate limit', async t => {
   const { request } = await setup(t);
   assert.equal((await request('/api/auth/login', { method: 'POST', raw: '{bad' })).status, 400);
