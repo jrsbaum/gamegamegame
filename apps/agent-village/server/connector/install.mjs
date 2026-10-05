@@ -7,7 +7,7 @@ const args = new Map();
 for (let i = 2; i < process.argv.length; i += 2) args.set(process.argv[i], process.argv[i + 1]);
 const origin = String(args.get('--origin') || '').replace(/\/$/, '');
 const code = String(args.get('--pairing-code') || '');
-if (!/^https:\/\//.test(origin) || !code) throw Error('Use --origin HTTPS e --pairing-code.');
+if (!/^(?:https:\/\/|http:\/\/127\.0\.0\.1(?::\d+)?$)/.test(origin) || !code) throw Error('Use --origin HTTPS e --pairing-code.');
 
 const atomicWrite = async (path, value) => { const temporary = `${path}.${process.pid}.tmp`; await writeFile(temporary, value, { mode: 0o600 }); await rename(temporary, path); };
 const jsonFile = async path => { try { return JSON.parse(await readFile(path, 'utf8')); } catch (error) { if (error.code === 'ENOENT') return {}; throw Error(`JSON inválido: ${path}`); } };
