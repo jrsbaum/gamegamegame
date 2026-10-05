@@ -203,7 +203,7 @@ export class Village {
     return this.store.transact(state => { const robot = ownerRobot(state, ownerId, id); Object.assign(robot, input); return this.ownRobot(robot); });
   }
   deleteRobot(ownerId, id) {
-    return this.store.transact(state => { ownerRobot(state, ownerId, id); state.robots = state.robots.filter(r => r.id !== id); });
+    return this.store.transact(state => { ownerRobot(state, ownerId, id); state.robots = state.robots.filter(r => r.id !== id); state.pairings = state.pairings.filter(pairing => pairing.robotId !== id); });
   }
   rotateToken(ownerId, id) {
     return this.store.transact(state => { const robot = ownerRobot(state, ownerId, id), raw = token(); robot.connectorHash = hash(raw); robot.sequence = 0; return { token: raw }; });

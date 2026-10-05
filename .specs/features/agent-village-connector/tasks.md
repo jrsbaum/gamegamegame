@@ -51,6 +51,7 @@ T1 → T2 → T3 → T4
 
 ### T3: Provider/shell onboarding wizard
 
+**Status**: ✅ Done
 **What**: Replace manual session ID form with provider, label and shell wizard; display command, expiry, copy action and connection states.
 **Where**: `apps/agent-village/web/main.ts`, `apps/agent-village/web/types.ts`, `apps/agent-village/web/styles.css`.
 **Depends on**: T2.
