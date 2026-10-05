@@ -1,0 +1,45 @@
+name: gamegamegame-agent-village
+
+services:
+  village:
+    build:
+      context: ../../../apps/agent-village
+      dockerfile: ../../infra/docker/agent-village.Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3340
+      PUBLIC_ORIGIN: https://agents.gamegamegame.site
+      INVITE_CODE: ${AGENT_VILLAGE_INVITE_CODE:?Set a private production invite code (16+ characters)}
+      DATA_FILE: /data/village.json
+      TRUST_PROXY: "true"
+    volumes:
+      - agent-village-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3340/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    networks: [proxy]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.gamegamegame-agent-village.rule: Host(`agents.gamegamegame.site`)
+      traefik.http.routers.gamegamegame-agent-village.entrypoints: websecure
+      traefik.http.routers.gamegamegame-agent-village.tls: "true"
+      traefik.http.routers.gamegamegame-agent-village.tls.certresolver: letsencrypt
+      traefik.http.services.gamegamegame-agent-village.loadbalancer.server.port: "3340"
+
+volumes:
+  agent-village-data:
+    external: true
+    name: ${AGENT_VILLAGE_DATA_VOLUME:?Confirm the dedicated production volume name}
+
+networks:
+  proxy:
+    external: true
+    name: dokploy-network

@@ -5,7 +5,7 @@
 Aplicar tlc-spec-driven, testes derivados da spec e um commit local por tarefa. O orchestrator dispara Verifier fresco ao final; author ≠ verifier. Aprovação inicial autoriza escolhas rotineiras e implementação local; operação Dokploy ocorre separadamente.
 
 **Design:** `.specs/features/agent-village/design.md`
-**Status:** In Progress
+**Status:** Complete
 
 ## Test Coverage Matrix
 
@@ -127,7 +127,7 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7
 **Requirement**: OPS-03, OPS-05
 **Tools**: filesystem; Docker Compose
 **Done when**:
-- [ ] Compose renderiza com volume/router exclusivos; build/test final passa; README contém protocolo e limites.
+- [x] Compose renderiza com volume/router exclusivos; build/test final passa; README contém protocolo e limites.
 **Tests**: none (config)
 **Gate**: Build
 

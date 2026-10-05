@@ -6,19 +6,19 @@ import { join } from 'node:path';
 import { JsonStore, Village } from '../server/village.mjs';
 import { createVillageServer } from '../server/http.mjs';
 
-async function setup(t, secure = false) {
+async function setup(t, secure = false, trustProxy = false) {
   const dir = await mkdtemp(join(tmpdir(), 'village-http-'));
   const dist = join(dir, 'dist');
   await mkdir(dist);
   await writeFile(join(dist, 'index.html'), '<html>Vila dos Agentes</html>');
   const village = new Village(await JsonStore.open(join(dir, 'state.json')), { inviteCode: 'friends-only' });
   const origin = secure ? 'https://agents.gamegamegame.site' : 'http://localhost:5176';
-  const server = createVillageServer(village, { publicOrigin: origin, dist });
+  const server = createVillageServer(village, { publicOrigin: origin, dist, trustProxy });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); });
   const base = `http://127.0.0.1:${server.address().port}`;
-  const request = async (path, { method = 'GET', data, cookie, bearer, requestOrigin = origin, raw } = {}) => {
-    const response = await fetch(base + path, { method, headers: { ...(method !== 'GET' ? { Origin: requestOrigin, 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) }, body: raw ?? (data ? JSON.stringify(data) : undefined) });
+  const request = async (path, { method = 'GET', data, cookie, bearer, requestOrigin = origin, raw, forwarded } = {}) => {
+    const response = await fetch(base + path, { method, headers: { ...(method !== 'GET' ? { Origin: requestOrigin, 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}), ...(forwarded ? { 'X-Forwarded-For': forwarded } : {}) }, body: raw ?? (data ? JSON.stringify(data) : undefined) });
     return { status: response.status, headers: response.headers, body: await response.text() };
   };
   const register = async username => {
@@ -100,4 +100,15 @@ test('EDGE-01/02/AUTH-05: bad JSON, large body, unknown fields and auth rate lim
   for (let i = 0; i < 20; i++) response = await request('/api/auth/login', { method: 'POST', data: { username: 'abc', password: 'wrong-password' } });
   assert.equal(response.status, 429);
   assert.equal(response.body.includes('wrong-password'), false);
+});
+
+test('AUTH-05/OPS-03: forwarded client IP is used only with an explicitly trusted proxy', async t => {
+  const direct = await setup(t);
+  const input = { method: 'POST', data: { unknown: 'invalid' } };
+  for (let i = 0; i < 20; i++) await direct.request('/api/auth/login', { ...input, forwarded: `192.0.2.${i + 1}` });
+  assert.equal((await direct.request('/api/auth/login', { ...input, forwarded: '198.51.100.9' })).status, 429);
+  const proxied = await setup(t, false, true);
+  for (let i = 0; i < 20; i++) await proxied.request('/api/auth/login', { ...input, forwarded: `192.0.2.${i + 1}, 198.51.100.1` });
+  assert.equal((await proxied.request('/api/auth/login', { ...input, forwarded: '203.0.113.3, 198.51.100.1' })).status, 429);
+  assert.equal((await proxied.request('/api/auth/login', { ...input, forwarded: '198.51.100.2' })).status, 400);
 });

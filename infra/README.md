@@ -9,6 +9,7 @@ todas apontando para o repositório `gamegamegame` no Dokploy. A produção usa
 - `dokploy/impostor`: `impostor.gamegamegame.site`;
 - `dokploy/caracol`: `caracol.gamegamegame.site` e PostgreSQL próprio;
 - `dokploy/lafarmer`: web, servidor e PostgreSQL próprio.
+- `dokploy/agent-village`: Vila dos Agentes, com arquivo persistido e volume próprio.
 
 ## Variáveis
 
