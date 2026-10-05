@@ -96,7 +96,7 @@ function authPanel() {
 }
 function installCommand(current: Pairing) {
   const base = window.location.origin;
-  if (current.shell === 'powershell') return `$p = Join-Path $env:TEMP "vila-agentes.ps1"; irm ${base}/install.ps1 -OutFile $p; & $p -PairingCode ${current.code}; Remove-Item $p`;
+  if (current.shell === 'powershell') return `$p = Join-Path $env:TEMP "vila-agentes.ps1"; iwr ${base}/install.ps1 -OutFile $p; & $p -PairingCode ${current.code}; Remove-Item $p`;
   const runner = current.shell === 'zsh' ? 'zsh' : 'bash';
   return `curl -fsSL ${base}/install.sh | ${runner} -s -- --pairing-code ${current.code}`;
 }
