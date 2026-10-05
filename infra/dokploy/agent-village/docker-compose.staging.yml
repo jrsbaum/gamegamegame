@@ -32,6 +32,7 @@ services:
       traefik.http.routers.gamegamegame-agent-village-hml.entrypoints: websecure
       traefik.http.routers.gamegamegame-agent-village-hml.tls: "true"
       traefik.http.routers.gamegamegame-agent-village-hml.tls.certresolver: letsencrypt
+      traefik.http.routers.gamegamegame-agent-village-hml.service: gamegamegame-agent-village-hml
       traefik.http.services.gamegamegame-agent-village-hml.loadbalancer.server.port: "3340"
 
 volumes:
