@@ -1,6 +1,6 @@
 import './styles.css';
 import { VillageWorld, type Selection } from './world';
-import { statusLabels, sizeLabels, type Snapshot, type Me, type OwnRobot } from './types';
+import { statusLabels, sizeLabels, type Snapshot, type Me, type OwnRobot, type Pairing, type Shell, type ConnectorProvider } from './types';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
@@ -12,7 +12,11 @@ let view: 'village' | 'office' = 'village';
 let timer: ReturnType<typeof setTimeout> | undefined;
 let world: VillageWorld | null = null;
 let lastToken: { id: string; token: string } | null = null;
+let pairing: Pairing | null = null;
 let polling = false;
+
+const providerLabels: Record<ConnectorProvider, string> = { codex: 'Codex', claude: 'Claude Code' };
+const shellLabels: Record<Shell, string> = { powershell: 'PowerShell', 'git-bash': 'Git Bash', zsh: 'zsh' };
 
 app.innerHTML = `
   <main class="village-shell">
@@ -90,13 +94,32 @@ function authPanel() {
   const creating = authMode === 'register';
   return `<h3>${creating ? 'Reserve seu cantinho' : 'Entre na nossa vila'}</h3><p class="muted">Sua conta é só desta vila. Peça o convite a quem chamou a turma.</p><form data-form="auth"><label>Nome de acesso<input name="username" autocomplete="username" minlength="3" maxlength="24" pattern="[a-z0-9_-]+" required placeholder="ex.: renatin"></label>${creating ? '<label>Como a turma te chama<input name="displayName" maxlength="32" required autocomplete="nickname"></label>' : ''}<label>Senha<input name="password" type="password" autocomplete="${creating ? 'new-password' : 'current-password'}" minlength="${creating ? 10 : 1}" maxlength="128" required></label>${creating ? '<label>Código de convite<input name="inviteCode" type="password" required autocomplete="off"></label>' : ''}<button class="primary" type="submit">${creating ? 'Criar meu cantinho' : 'Entrar'}</button></form><button class="text-button" data-action="auth-mode">${creating ? 'Já tenho conta' : 'Quero criar meu cantinho'}</button>`;
 }
+function installCommand(current: Pairing) {
+  const base = window.location.origin;
+  if (current.shell === 'powershell') return `$p = Join-Path $env:TEMP "vila-agentes.ps1"; irm ${base}/install.ps1 -OutFile $p; & $p -PairingCode ${current.code}; Remove-Item $p`;
+  const runner = current.shell === 'zsh' ? 'zsh' : 'bash';
+  return `curl -fsSL ${base}/install.sh | ${runner} -s -- --pairing-code ${current.code}`;
+}
+function pairingStatus() {
+  if (!pairing) return '';
+  const robot = me?.robots.find(candidate => candidate.id === pairing!.robotId);
+  if (!robot || robot.status === 'pending') return 'Aguardando a execução do comando de instalação.';
+  if (!robot.sessionId) return 'Conector instalado. Abra o agente e faça uma ação.';
+  return `Conectado · ${statusLabels[robot.status] ?? 'sinal recebido'}`;
+}
+function pairingWizard() {
+  if (!pairing) return `<details class="new-robot"><summary>+ Adicionar Codex ou Claude</summary><form data-form="robot-create"><label>Provedor<select name="provider"><option value="codex">Codex</option><option value="claude">Claude Code</option></select></label><label>Nome do agente<input name="label" maxlength="32" required placeholder="Meu Codex"></label><label>Seu terminal<select name="shell"><option value="powershell">PowerShell</option><option value="git-bash">Git Bash</option><option value="zsh">zsh</option></select></label><p class="small-help">O instalador configura o hook local e nunca pede a senha do provedor.</p><button class="primary" type="submit" ${me!.robots.length >= 12 ? 'disabled' : ''}>Gerar comando de instalação</button></form></details>`;
+  const remaining = Math.max(0, pairing.expiresAt - Date.now());
+  return `<section class="pairing-wizard"><div class="pairing-heading"><div><p class="eyebrow">Pareamento de ${esc(providerLabels[pairing.provider])}</p><h4>${esc(pairing.label)}</h4></div><button class="text-button" data-action="cancel-pairing">Cancelar</button></div><div class="shell-tabs" role="group" aria-label="Terminal">${(Object.keys(shellLabels) as Shell[]).map(shell => `<button type="button" data-action="shell" data-shell="${shell}" aria-pressed="${pairing!.shell === shell}">${shellLabels[shell]}</button>`).join('')}</div><p class="pairing-code-label">Código temporário · expira em ${Math.ceil(remaining / 60000)} min</p><code class="pairing-code">${esc(pairing.code)}</code><label class="command-label">Comando para ${shellLabels[pairing.shell]}<textarea readonly rows="3" aria-label="Comando de instalação">${esc(installCommand(pairing))}</textarea></label><button class="primary" data-action="copy-command">Copiar comando</button><p class="pairing-status" role="status">${esc(pairingStatus())}</p><p class="small-help">Depois de executar, abra ${esc(providerLabels[pairing.provider])} e faça uma ação. A sessão será detectada automaticamente.</p></section>`;
+}
 function robotEditor(robot: OwnRobot) {
-  return `<details class="robot-editor"><summary>${esc(robot.label)} <span>${esc(robot.provider)}</span></summary><form data-form="robot-edit" data-id="${esc(robot.id)}"><label>Nome do robô<input name="label" value="${esc(robot.label)}" maxlength="32" required></label><label>O que os amigos veem<select name="privacy"><option value="none" ${robot.privacy === 'none' ? 'selected' : ''}>Não compartilhar · só estado</option><option value="title" ${robot.privacy === 'title' ? 'selected' : ''}>Compartilhar título</option><option value="description" ${robot.privacy === 'description' ? 'selected' : ''}>Compartilhar título e descrição</option></select></label><label>Título autorizado<input name="title" maxlength="120" value="${esc(robot.title)}"></label><label>Descrição autorizada<textarea name="description" maxlength="280" rows="2">${esc(robot.description)}</textarea></label><p class="small-help">Você escolhe estes textos. Nenhum prompt é copiado automaticamente.</p><button class="primary" type="submit">Salvar compartilhamento</button></form><p class="small-help">Chat privado: ${esc(robot.sessionId)}</p><div class="robot-actions"><button class="quiet" data-action="rotate" data-id="${esc(robot.id)}">Gerar novo token</button><button class="text-button danger" data-action="delete" data-id="${esc(robot.id)}">Remover robô</button></div></details>`;
+  const sessionNote = robot.sessionId ? `Sessão detectada automaticamente: ${esc(robot.sessionId)}` : robot.status === 'pending' ? 'Aguardando o instalador local.' : 'Aguardando o primeiro sinal.';
+  return `<details class="robot-editor"><summary>${esc(robot.label)} <span>${esc(robot.provider)}</span></summary><form data-form="robot-edit" data-id="${esc(robot.id)}"><label>Nome do robô<input name="label" value="${esc(robot.label)}" maxlength="32" required></label><label>O que os amigos veem<select name="privacy"><option value="none" ${robot.privacy === 'none' ? 'selected' : ''}>Não compartilhar · só estado</option><option value="title" ${robot.privacy === 'title' ? 'selected' : ''}>Compartilhar título</option><option value="description" ${robot.privacy === 'description' ? 'selected' : ''}>Compartilhar título e descrição</option></select></label><label>Título autorizado<input name="title" maxlength="120" value="${esc(robot.title)}"></label><label>Descrição autorizada<textarea name="description" maxlength="280" rows="2">${esc(robot.description)}</textarea></label><p class="small-help">Você escolhe estes textos. Nenhum prompt é copiado automaticamente.</p><button class="primary" type="submit">Salvar compartilhamento</button></form><p class="small-help">${sessionNote}</p><div class="robot-actions"><button class="quiet" data-action="rotate" data-id="${esc(robot.id)}">Gerar novo token</button><button class="text-button danger" data-action="delete" data-id="${esc(robot.id)}">Remover robô</button></div></details>`;
 }
 function renderAccount() {
   if (!me) { el('account-panel').innerHTML = authPanel(); return; }
-  el('account-panel').innerHTML = `<div class="account-heading"><h3>O cantinho de ${esc(me.account.displayName)}</h3><button class="text-button" data-action="logout">Sair</button></div><details class="my-desk"><summary>Minha mesa e meus robôs</summary><form data-form="desk"><label>Tamanho da mesa<select name="deskSize">${Object.entries(sizeLabels).map(([value, label]) => `<option value="${value}" ${me!.account.deskSize === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><button class="quiet" type="submit">Salvar mesa</button></form><div class="own-robots">${me.robots.map(robotEditor).join('')}</div><details class="new-robot"><summary>+ Adicionar robô / chat</summary><form data-form="robot-create"><label>Provedor<select name="provider"><option value="codex">Codex</option><option value="cursor">Cursor</option><option value="claude">Claude Code</option></select></label><label>Nome do robô<input name="label" maxlength="32" required placeholder="Codex 1"></label><label>ID privado da sessão<input name="sessionId" maxlength="128" required autocomplete="off"></label><p class="small-help">Use o ID do chat que seu coletor envia. Ele fica só com você.</p><button class="primary" type="submit" ${me.robots.length >= 12 ? 'disabled' : ''}>Criar robô</button></form></details>${lastToken ? `<div class="token-note"><h4>Guarde o token deste robô</h4><p>Ele aparece só agora. Configure no seu coletor e mantenha em segredo.</p><textarea aria-label="Token do coletor" readonly rows="3" spellcheck="false">${esc(lastToken.token)}</textarea><button class="quiet" data-action="hide-token">Já guardei · ocultar</button></div>` : ''}<p class="small-help">Até 12 chats. Criar um robô não conecta a sua conta: o coletor precisa enviar seus sinais.</p></details>`;
-  if (lastToken) el('account-panel').querySelector<HTMLDetailsElement>('.my-desk')!.open = true;
+  el('account-panel').innerHTML = `<div class="account-heading"><h3>O cantinho de ${esc(me.account.displayName)}</h3><button class="text-button" data-action="logout">Sair</button></div><details class="my-desk"><summary>Minha mesa e meus robôs</summary><form data-form="desk"><label>Tamanho da mesa<select name="deskSize">${Object.entries(sizeLabels).map(([value, label]) => `<option value="${value}" ${me!.account.deskSize === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label><button class="quiet" type="submit">Salvar mesa</button></form><div class="own-robots">${me.robots.map(robotEditor).join('')}</div>${pairingWizard()}${lastToken ? `<div class="token-note"><h4>Guarde o token deste robô</h4><p>Ele aparece só agora. Configure no seu coletor e mantenha em segredo.</p><textarea aria-label="Token do coletor" readonly rows="3" spellcheck="false">${esc(lastToken.token)}</textarea><button class="quiet" data-action="hide-token">Já guardei · ocultar</button></div>` : ''}<p class="small-help">Até 12 chats. O conector usa o login nativo do seu agente e um token separado desta vila.</p></details>`;
+  if (lastToken || pairing) el('account-panel').querySelector<HTMLDetailsElement>('.my-desk')!.open = true;
 }
 async function loadDemo() { const next = await api<Snapshot>(`/api/demo?step=${step}`); if (!simulated) return; snapshot = next; if (!selection || !snapshot.robots.some(r => r.id === selection!.id)) selection = { kind: 'robot', id: snapshot.robots[0].id }; renderScene(); }
 async function loadReal(configuration = false) {
@@ -104,7 +127,7 @@ async function loadReal(configuration = false) {
   if (configuration) me = await api<Me>('/api/me');
   const next = await api<Snapshot>('/api/village'); if (simulated) return; snapshot = next;
   if (selection && !snapshot.robots.some(r => r.id === selection!.id) && !snapshot.members.some(m => m.id === selection!.id)) selection = null;
-  renderScene(); if (configuration) renderAccount();
+  renderScene(); if (configuration || pairing) renderAccount();
 }
 async function advance() { if (step >= (snapshot?.totalSteps ?? 20)) { playing = false; return; } step++; await loadDemo(); }
 async function play() { if (!playing) return; await advance(); if (step < (snapshot?.totalSteps ?? 20) && playing) timer = setTimeout(() => { void play().catch(handleError); }, 900); else { playing = false; renderScene(); } }
@@ -121,9 +144,12 @@ app.addEventListener('click', event => {
     if (action === 'next') await advance();
     if (action === 'play') { if (playing) { stopDemo(); renderScene(); } else { if (step === snapshot?.totalSteps) step = 0; playing = true; await play(); } }
     if (action === 'mode') { stopDemo(); simulated = !simulated; selection = null; if (simulated) { step = 0; await loadDemo(); } else await loadReal(true); }
-    if (action === 'logout') { await api('/api/auth/logout', 'POST', {}); me = null; lastToken = null; simulated = true; selection = null; stopDemo(); step = 0; await loadDemo(); renderAccount(); notify('Você saiu. Os robôs continuam recebendo sinais dos coletores.'); }
+    if (action === 'logout') { await api('/api/auth/logout', 'POST', {}); me = null; lastToken = null; pairing = null; simulated = true; selection = null; stopDemo(); step = 0; await loadDemo(); renderAccount(); notify('Você saiu. Os robôs continuam recebendo sinais dos coletores.'); }
+    if (action === 'shell' && pairing) { pairing.shell = button.dataset.shell as Shell; renderAccount(); }
+    if (action === 'copy-command' && pairing) { const command = installCommand(pairing); try { await navigator.clipboard.writeText(command); notify('Comando copiado. Cole no terminal escolhido.'); } catch { const input = document.createElement('textarea'); input.value = command; document.body.append(input); input.select(); document.execCommand('copy'); input.remove(); notify('Comando copiado. Cole no terminal escolhido.'); } }
+    if (action === 'cancel-pairing' && pairing) { await api(`/api/robots/${pairing.robotId}`, 'DELETE', {}); pairing = null; await loadReal(true); notify('Pareamento cancelado.'); }
     if (action === 'rotate') { const result = await api<{ token: string }>(`/api/robots/${button.dataset.id}/token`, 'POST', {}); lastToken = { id: button.dataset.id!, token: result.token }; renderAccount(); notify('Novo token gerado. O anterior foi revogado.'); }
-    if (action === 'delete') { await api(`/api/robots/${button.dataset.id}`, 'DELETE', {}); if (lastToken?.id === button.dataset.id) lastToken = null; await loadReal(true); notify('Robô removido e token revogado.'); }
+    if (action === 'delete') { await api(`/api/robots/${button.dataset.id}`, 'DELETE', {}); if (lastToken?.id === button.dataset.id) lastToken = null; if (pairing?.robotId === button.dataset.id) pairing = null; await loadReal(true); notify('Robô removido e token revogado.'); }
     if (action === 'hide-token') { lastToken = null; renderAccount(); }
   })().catch(handleError);
 });
@@ -134,7 +160,7 @@ app.addEventListener('submit', event => {
   void (async () => {
     if (form.dataset.form === 'auth') { await api(`/api/auth/${authMode}`, 'POST', data); me = await api<Me>('/api/me'); simulated = false; selection = { kind: 'member', id: me.account.id }; stopDemo(); await loadReal(true); setView('office'); notify('Seu cantinho está pronto. Bem-vindo à vila.'); }
     if (form.dataset.form === 'desk') { await api('/api/desk', 'PATCH', data); await loadReal(true); notify('Mesa salva.'); }
-    if (form.dataset.form === 'robot-create') { const result = await api<{ robot: OwnRobot; token: string }>('/api/robots', 'POST', data); lastToken = { id: result.robot.id, token: result.token }; simulated = false; selection = { kind: 'robot', id: result.robot.id }; await loadReal(true); setView('office'); notify('Robô criado. Guarde seu token para conectar o coletor.'); }
+    if (form.dataset.form === 'robot-create') { const result = await api<{ pairing: Omit<Pairing, 'robotId' | 'shell'>; robot: OwnRobot }>('/api/pairings', 'POST', { provider: data.provider, label: data.label }); pairing = { ...result.pairing, robotId: result.robot.id, shell: data.shell as Shell }; simulated = false; selection = { kind: 'robot', id: result.robot.id }; await loadReal(true); setView('office'); notify('Pareamento criado. Copie o comando no seu terminal.'); }
     if (form.dataset.form === 'robot-edit') { await api(`/api/robots/${form.dataset.id}`, 'PATCH', data); simulated = false; await loadReal(true); notify('Compartilhamento salvo.'); }
   })().catch(handleError).finally(() => { submit.disabled = false; });
 });

@@ -88,15 +88,15 @@ O MVP atual exige que o morador descubra o `sessionId`, crie um robô manualment
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| CONN-01 | Parear | Design | Pending |
+| CONN-01 | Parear | T3 | Implementing |
 | CONN-02 | Parear | T1 | Implementing |
-| CONN-03 | Parear | T3 | Pending |
+| CONN-03 | Parear | T3 | Implementing |
 | CONN-04 | Parear | T1 | Implementing |
 | CONN-05 | Instalação | T2 | Implementing |
 | CONN-06 | Instalação | T1 | Implementing |
 | CONN-07 | Instalação | T1 | Implementing |
 | CONN-08 | Instalação | T1 | Implementing |
-| CONN-09 | Instalação | Design | Pending |
+| CONN-09 | Instalação | T3 | Implementing |
 | CONN-10 | Privacidade | T2 | Implementing |
 | CONN-11 | Privacidade | T2 | Implementing |
 | CONN-12 | Privacidade | T2 | Implementing |
