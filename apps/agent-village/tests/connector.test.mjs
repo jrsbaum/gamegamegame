@@ -17,6 +17,8 @@ test('CONN-10: connector allowlists provider lifecycle fields and drops private 
   assert.equal(JSON.stringify(codex).includes('segredo'), false);
   const claude = sanitizeEvent('claude', { session_id: 'session', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tool', tool_input: { command: 'secret' } });
   assert.deepEqual(claude, { session_id: 'session', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tool' });
+  const codexHook = sanitizeEvent('codex', { session_id: 'session', hook_event_name: 'PreToolUse', turn_id: 'turn', tool_name: 'Bash', tool_use_id: 'tool', tool_input: { command: 'secret' } });
+  assert.deepEqual(codexHook, { session_id: 'session', turn_id: 'turn', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tool' });
 });
 
 test('CONN-05/11: hook definitions identify the robot and keep session end synchronous', () => {
