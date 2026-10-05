@@ -124,7 +124,7 @@ function renderAccount() {
 async function loadDemo() { const next = await api<Snapshot>(`/api/demo?step=${step}`); if (!simulated) return; snapshot = next; if (!selection || !snapshot.robots.some(r => r.id === selection!.id)) selection = { kind: 'robot', id: snapshot.robots[0].id }; renderScene(); }
 async function loadReal(configuration = false) {
   simulated = false;
-  if (configuration) me = await api<Me>('/api/me');
+  if (configuration || pairing) me = await api<Me>('/api/me');
   const next = await api<Snapshot>('/api/village'); if (simulated) return; snapshot = next;
   if (selection && !snapshot.robots.some(r => r.id === selection!.id) && !snapshot.members.some(m => m.id === selection!.id)) selection = null;
   renderScene(); if (configuration || pairing) renderAccount();

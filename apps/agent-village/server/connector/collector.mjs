@@ -22,7 +22,7 @@ async function atomicWrite(path, value) {
 
 async function nextSequence() {
   const lock = `${configPath}.lock`;
-  for (let attempt = 0; attempt < 40; attempt++) {
+  for (let attempt = 0; attempt < 200; attempt++) {
     try {
       const handle = await open(lock, 'wx', 0o600);
       await handle.close();
