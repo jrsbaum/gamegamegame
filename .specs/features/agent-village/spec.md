@@ -107,40 +107,40 @@ O ensaio local mostra amigos e robôs trabalhando num escritório 3D, mas não t
 
 | Requirement ID | Story | Phase | Status |
 | --- | --- | --- | --- |
-| WORLD-01 | Vila | T5 | Pending |
-| WORLD-02 | Vila | T5 | Pending |
-| WORLD-03 | Vila | T3 | Pending |
-| WORLD-04 | Vila | T5 | Pending |
-| WORLD-05 | Vila | T5 | Pending |
-| AUTH-01 | Contas | T3/T4 | Pending |
-| AUTH-02 | Contas | T3/T4 | Pending |
-| AUTH-03 | Contas | T3/T4 | Pending |
-| AUTH-04 | Contas | T3/T4 | Pending |
-| AUTH-05 | Contas | T4 | Pending |
-| ROBOT-01 | Sessões | T3 | Pending |
-| ROBOT-02 | Sessões | T3/T4 | Pending |
-| ROBOT-03 | Sessões | T2/T3 | Pending |
-| ROBOT-04 | Sessões | T2/T3/T4 | Pending |
-| ROBOT-05 | Sessões | T3/T4 | Pending |
-| ROBOT-06 | Sessões | T3 | Pending |
-| ROBOT-07 | Sessões | T3/T4 | Pending |
-| ROBOT-08 | Sessões | T2/T5 | Pending |
-| OPS-01 | Operação | T3 | Pending |
-| OPS-02 | Operação | T4 | Pending |
-| OPS-03 | Operação | T7 | Pending |
-| OPS-04 | Operação | T6 | Pending |
-| OPS-05 | Operação | T7 | Pending |
-| EDGE-01 | Limites | T4 | Pending |
-| EDGE-02 | Limites | T3/T4 | Pending |
-| EDGE-03 | Limites | T2/T3 | Pending |
-| EDGE-04 | Limites | T3 | Pending |
-| EDGE-05 | Limites | T3 | Pending |
+| WORLD-01 | Vila | T5 | ✅ Verified |
+| WORLD-02 | Vila | T5 | ✅ Verified |
+| WORLD-03 | Vila | T3 | ✅ Verified |
+| WORLD-04 | Vila | T5 | ✅ Verified |
+| WORLD-05 | Vila | T5 | ✅ Verified |
+| AUTH-01 | Contas | T3/T4 | ✅ Verified |
+| AUTH-02 | Contas | T3/T4 | ✅ Verified |
+| AUTH-03 | Contas | T3/T4 | ✅ Verified |
+| AUTH-04 | Contas | T3/T4 | ✅ Verified |
+| AUTH-05 | Contas | T4 | ✅ Verified |
+| ROBOT-01 | Sessões | T3 | ✅ Verified |
+| ROBOT-02 | Sessões | T3/T4 | ✅ Verified |
+| ROBOT-03 | Sessões | T2/T3 | ✅ Verified |
+| ROBOT-04 | Sessões | T2/T3/T4 | ✅ Verified |
+| ROBOT-05 | Sessões | T3/T4 | ✅ Verified |
+| ROBOT-06 | Sessões | T3 | ✅ Verified |
+| ROBOT-07 | Sessões | T3/T4 | ✅ Verified |
+| ROBOT-08 | Sessões | T2/T5 | ✅ Verified |
+| OPS-01 | Operação | T3 | ✅ Verified |
+| OPS-02 | Operação | T4 | ✅ Verified |
+| OPS-03 | Operação | T7 | ✅ Verified |
+| OPS-04 | Operação | T6 | ✅ Verified |
+| OPS-05 | Operação | T7 | ✅ Verified |
+| EDGE-01 | Limites | T4 | ✅ Verified |
+| EDGE-02 | Limites | T3/T4 | ✅ Verified |
+| EDGE-03 | Limites | T2/T3 | ✅ Verified |
+| EDGE-04 | Limites | T3 | ✅ Verified |
+| EDGE-05 | Limites | T3 | ✅ Verified |
 
 **Coverage:** 28 total, 28 mapped to tasks, 0 unmapped.
 
 ## Success Criteria
 
-- [ ] Testes do novo app, catálogo e lobby passam com Node 22.
-- [ ] Build e Compose validam localmente.
-- [ ] QA browser cobre demo, cadastro, mesa, robôs e navegação por cenário.
-- [ ] Verifier independente registra PASS antes de declarar feature concluída.
+- [x] Testes do novo app, catálogo e lobby passam com Node 22.
+- [x] Build e Compose validam localmente.
+- [x] QA browser cobre demo, cadastro, mesa, robôs e navegação por cenário.
+- [x] Verifier independente registra PASS antes de declarar feature concluída.
