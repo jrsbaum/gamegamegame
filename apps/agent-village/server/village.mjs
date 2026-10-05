@@ -237,7 +237,7 @@ export class Village {
     });
   }
   ownConnection(connection) {
-    return { id: connection.id, provider: connection.provider, label: connection.label, privacy: connection.defaultPrivacy ?? connection.privacy ?? 'none', provisioned: Boolean(connection.provisioned), lastSignalAt: connection.lastSignalAt ?? null };
+    return { id: connection.id, provider: connection.provider, label: connection.label, privacy: connection.defaultPrivacy ?? connection.privacy ?? 'none', provisioned: Boolean(connection.provisioned), installed: Boolean(connection.provisioned), lastSignalAt: connection.lastSignalAt ?? null };
   }
   ownRobot(robot) {
     return { ...publicRobot(robot), connectionId: robot.connectionId ?? null, sessionId: robot.sessionId, parentSessionId: robot.parentSessionId ?? null, parentRobotId: robot.parentRobotId ?? null, privacy: robot.privacy, title: robot.title, description: robot.description };

@@ -47,10 +47,10 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: None
 **Requirement**: CONN-01, CONN-02, MIG-01
 **Done when**:
-- [ ] Pairing cria conexão sem robô e retorna token compatível.
-- [ ] Eventos de duas sessões criam duas instâncias sem duplicar a mesma chave.
-- [ ] Fixture antiga continua legível e editável.
-- [ ] Corrida de primeiro evento deixa exatamente um robô.
+- [x] Pairing cria conexão sem robô e retorna token compatível.
+- [x] Eventos de duas sessões criam duas instâncias sem duplicar a mesma chave.
+- [x] Fixture antiga continua legível e editável.
+- [x] Corrida de primeiro evento deixa exatamente um robô.
 **Tests**: integration
 **Gate**: Full
 
@@ -61,10 +61,10 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: T1
 **Requirement**: SPAWN-03, LIFE-01, EDGE-02, EDGE-03, EDGE-04
 **Done when**:
-- [ ] Parent/child e sessão sem parent são normalizados dentro dos limites.
-- [ ] SessionEnd encerra somente a sessão correspondente.
-- [ ] Evento tardio de sessão encerrada não reabre o robô.
-- [ ] Resumo e privacidade preservam o contrato BUBBLE.
+- [x] Parent/child e sessão sem parent são normalizados dentro dos limites.
+- [x] SessionEnd encerra somente a sessão correspondente.
+- [x] Evento tardio de sessão encerrada não reabre o robô.
+- [x] Resumo e privacidade preservam o contrato BUBBLE.
 **Tests**: integration
 **Gate**: Quick
 
@@ -75,10 +75,10 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: T2
 **Requirement**: CONN-03, MIG-02, EDGE-03
 **Done when**:
-- [ ] Eventos válidos de vários sessionIds preservam IDs e redaction.
-- [ ] Evento sem SessionStart ainda é aceito pelo contrato.
-- [ ] Campos desconhecidos, IDs inválidos e segredos continuam fora do payload.
-- [ ] Sequência da conexão é segura para eventos intercalados.
+- [x] Eventos válidos de vários sessionIds preservam IDs e redaction.
+- [x] Evento sem SessionStart ainda é aceito pelo contrato.
+- [x] Campos desconhecidos, IDs inválidos e segredos continuam fora do payload.
+- [x] Sequência da conexão é segura para eventos intercalados.
 **Tests**: unit
 **Gate**: Quick
 
@@ -91,10 +91,10 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: T1, T3
 **Requirement**: PRIV-01, CONN-03, MIG-02
 **Done when**:
-- [ ] Dono consegue listar/editar/revogar somente suas conexões.
-- [ ] Token bruto aparece apenas no exchange/rotação autorizado.
-- [ ] Eventos de conexão revogada retornam 401 e endpoints antigos continuam respondendo.
-- [ ] Origin, limites e erros seguem os contratos atuais.
+- [x] Dono consegue listar/editar/revogar somente suas conexões.
+- [x] Token bruto aparece apenas no exchange/rotação autorizado.
+- [x] Eventos de conexão revogada retornam 401 e endpoints antigos continuam respondendo.
+- [x] Origin, limites e erros seguem os contratos atuais.
 **Tests**: integration
 **Gate**: Full
 
@@ -105,10 +105,10 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: T4
 **Requirement**: UI-01, UI-02, PRIV-01, PRIV-02
 **Done when**:
-- [ ] UI oferece conexão como ação criada pelo dono e não oferece criação manual de robô.
-- [ ] Robôs novos aparecem automaticamente agrupados por provider/conexão.
-- [ ] Parent/child é indicado sem expor IDs privados.
-- [ ] Balões/caderninho continuam obedecendo as três políticas de privacidade.
+- [x] UI oferece conexão como ação criada pelo dono e não oferece criação manual de robô.
+- [x] Robôs novos aparecem automaticamente agrupados por provider/conexão.
+- [x] Parent/child é indicado sem expor IDs privados.
+- [x] Balões/caderninho continuam obedecendo as três políticas de privacidade.
 **Tests**: e2e + typecheck
 **Gate**: Build
 
@@ -121,9 +121,9 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: T4, T5
 **Requirement**: MIG-01, MIG-02, OPS-01
 **Done when**:
-- [ ] README explica conexão, auto-spawn, parent, revogação e limites.
-- [ ] Fixture anterior e fixture nova passam pela mesma suíte.
-- [ ] Spec traceability aponta todas as evidências.
+- [x] README explica conexão, auto-spawn, parent, revogação e limites.
+- [x] Fixture anterior e fixture nova passam pela mesma suíte.
+- [x] Spec traceability aponta todas as evidências.
 **Tests**: integration
 **Gate**: Full
 
