@@ -28,6 +28,10 @@ O cadastro de uma conexão devolve um token uma única vez. O coletor envia some
 
 O público recebe uma projeção allowlist. `none` (padrão) mostra só estado no balão do robô; `title` mostra somente o título atual no balão; `description` mostra estado e título abreviado no balão e deixa a descrição atual no caderninho. O título e a descrição nunca são digitados manualmente no navegador. `lastSignalAt` é apenas o horário do último sinal aceito. Sem coletor ativo, o app não promete atividade ao vivo.
 
+## Tempo real
+
+A interface abre `wss://<domínio>/ws` na mesma origem depois do login. O cookie de sessão HttpOnly autentica o handshake; nenhum token do coletor vai para a URL do WebSocket. O servidor envia um `hello` com o snapshot inicial, aceita `snapshot.get` e transmite `snapshot` quando um coletor altera a vila. O navegador reconecta com atraso progressivo e mantém o polling HTTP somente como fallback quando o socket está indisponível. A projeção enviada pelo socket usa a mesma allowlist pública da API e não contém sessão, parent, conexão ou segredo.
+
 ## Persistência e limites
 
 O arquivo JSON é gravado com transação serial, arquivo temporário, `fsync` e rename. Uma réplica é obrigatória: duas réplicas podem sobrescrever o arquivo. Após reinício, robôs que estavam trabalhando voltam como offline até receberem um novo evento. O volume deve ter backup próprio e nunca pode ser compartilhado com outro jogo.

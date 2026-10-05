@@ -14,6 +14,9 @@ let world: VillageWorld | null = null;
 let lastToken: { id: string; token: string } | null = null;
 let pairing: Pairing | null = null;
 let polling = false;
+let realtimeSocket: WebSocket | null = null;
+let realtimeReconnectTimer: ReturnType<typeof setTimeout> | undefined;
+let realtimeGeneration = 0;
 
 const providerLabels: Record<ConnectorProvider, string> = { codex: 'Codex', claude: 'Claude Code' };
 const shellLabels: Record<Shell, string> = { powershell: 'PowerShell', 'git-bash': 'Git Bash', zsh: 'zsh' };
@@ -52,6 +55,45 @@ async function api<T>(path: string, method = 'GET', data?: unknown): Promise<T> 
   const result = await response.json();
   if (!response.ok) throw new Error(result.error ?? 'Não foi possível conectar à vila.');
   return result as T;
+}
+function realtimeUrl() {
+  return `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`;
+}
+function stopRealtime() {
+  realtimeGeneration++;
+  if (realtimeReconnectTimer) { clearTimeout(realtimeReconnectTimer); realtimeReconnectTimer = undefined; }
+  const socket = realtimeSocket;
+  realtimeSocket = null;
+  socket?.close();
+}
+function scheduleRealtime(generation: number) {
+  if (!me || simulated || generation !== realtimeGeneration || realtimeReconnectTimer) return;
+  realtimeReconnectTimer = setTimeout(() => {
+    realtimeReconnectTimer = undefined;
+    connectRealtime(generation);
+  }, 1500);
+}
+function connectRealtime(generation = ++realtimeGeneration) {
+  if (!me || simulated || generation !== realtimeGeneration || realtimeSocket) return;
+  const socket = new WebSocket(realtimeUrl());
+  realtimeSocket = socket;
+  socket.addEventListener('open', () => {
+    if (socket !== realtimeSocket || generation !== realtimeGeneration) return;
+    socket.send(JSON.stringify({ type: 'snapshot.get' }));
+  });
+  socket.addEventListener('message', event => {
+    if (socket !== realtimeSocket || generation !== realtimeGeneration) return;
+    try {
+      const message = JSON.parse(String(event.data)) as { type?: string };
+      if (message.type === 'hello' || message.type === 'snapshot') void loadReal().catch(handleError);
+    } catch { /* the server owns the realtime protocol */ }
+  });
+  socket.addEventListener('close', () => {
+    if (socket !== realtimeSocket) return;
+    realtimeSocket = null;
+    scheduleRealtime(generation);
+  });
+  socket.addEventListener('error', () => socket.close());
 }
 function setView(next: 'village' | 'office') {
   view = next; world?.setView(view);
@@ -190,8 +232,8 @@ app.addEventListener('click', event => {
     if (action === 'auth-mode') { authMode = authMode === 'login' ? 'register' : 'login'; renderAccount(); }
     if (action === 'next') await advance();
     if (action === 'play') { if (playing) { stopDemo(); renderScene(); } else { if (step === snapshot?.totalSteps) step = 0; playing = true; await play(); } }
-    if (action === 'mode') { stopDemo(); simulated = !simulated; selection = null; if (simulated) { step = 0; await loadDemo(); } else await loadReal(true); }
-    if (action === 'logout') { await api('/api/auth/logout', 'POST', {}); me = null; lastToken = null; pairing = null; simulated = true; selection = null; stopDemo(); step = 0; await loadDemo(); renderAccount(); notify('Você saiu. Os robôs continuam recebendo sinais dos coletores.'); }
+    if (action === 'mode') { stopDemo(); simulated = !simulated; selection = null; if (simulated) { stopRealtime(); step = 0; await loadDemo(); } else { await loadReal(true); connectRealtime(); } }
+    if (action === 'logout') { await api('/api/auth/logout', 'POST', {}); stopRealtime(); me = null; lastToken = null; pairing = null; simulated = true; selection = null; stopDemo(); step = 0; await loadDemo(); renderAccount(); notify('Você saiu. Os robôs continuam recebendo sinais dos coletores.'); }
     if (action === 'shell' && pairing) { pairing.shell = button.dataset.shell as Shell; renderAccount(); }
     if (action === 'copy-command' && pairing) { const command = installCommand(pairing); try { await navigator.clipboard.writeText(command); notify('Comando copiado. Cole no terminal escolhido.'); } catch { const input = document.createElement('textarea'); input.value = command; document.body.append(input); input.select(); document.execCommand('copy'); input.remove(); notify('Comando copiado. Cole no terminal escolhido.'); } }
     if (action === 'cancel-pairing' && pairing) { const path = pairing.connectionId ? `/api/connections/${pairing.connectionId}` : pairing.robotId ? `/api/robots/${pairing.robotId}` : ''; if (path) await api(path, 'DELETE', {}); pairing = null; await loadReal(true); notify('Pareamento cancelado.'); }
@@ -205,7 +247,7 @@ app.addEventListener('submit', event => {
   const data = Object.fromEntries([...new FormData(form)].map(([key, value]) => [key, String(value)]));
   const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]')!; submit.disabled = true;
   void (async () => {
-    if (form.dataset.form === 'auth') { await api(`/api/auth/${authMode}`, 'POST', data); me = await api<Me>('/api/me'); simulated = false; selection = { kind: 'member', id: me.account.id }; stopDemo(); await loadReal(true); setView('office'); notify('Seu cantinho está pronto. Bem-vindo à vila.'); }
+    if (form.dataset.form === 'auth') { await api(`/api/auth/${authMode}`, 'POST', data); me = await api<Me>('/api/me'); simulated = false; selection = { kind: 'member', id: me.account.id }; stopDemo(); await loadReal(true); connectRealtime(); setView('office'); notify('Seu cantinho está pronto. Bem-vindo à vila.'); }
     if (form.dataset.form === 'desk') { await api('/api/desk', 'PATCH', data); await loadReal(true); notify('Mesa salva.'); }
     if (form.dataset.form === 'connection-create') { const result = await api<{ pairing: Pairing; connection?: OwnConnection }>('/api/pairings', 'POST', { provider: data.provider, label: data.label, defaultPrivacy: data.defaultPrivacy }); pairing = { ...result.pairing, connectionId: result.pairing.connectionId ?? result.connection?.id, shell: data.shell as Shell }; simulated = false; await loadReal(true); setView('office'); notify('Conexão criada. Copie o comando no seu terminal; os robôs nascerão pelas sessões.'); }
     if (form.dataset.form === 'connection-edit') { await api(`/api/connections/${form.dataset.id}`, 'PATCH', { label: data.label, defaultPrivacy: data.defaultPrivacy }); simulated = false; await loadReal(true); notify('Conexão salva.'); }
@@ -214,10 +256,10 @@ app.addEventListener('submit', event => {
 try { world = new VillageWorld(el('stage'), select, () => setView('office')); } catch { el('stage').insertAdjacentHTML('afterbegin', '<div class="webgl-fallback"><span aria-hidden="true">⌂</span><h2>A vila continua por aqui.</h2><p>O cenário 3D precisa de WebGL. Use o caderninho ao lado para escolher mesas, acompanhar robôs e configurar seu cantinho.</p></div>'); }
 void (async () => {
   try { me = await api<Me>('/api/me'); simulated = false; } catch { me = null; }
-  if (me) await loadReal(); else await loadDemo(); renderAccount();
+  if (me) { await loadReal(); renderAccount(); connectRealtime(); } else await loadDemo(); renderAccount();
 })().catch(handleError);
 const poll = setInterval(() => {
-  if (!me || simulated || polling) return;
+  if (!me || simulated || polling || realtimeSocket?.readyState === WebSocket.OPEN) return;
   polling = true; void loadReal().catch(handleError).finally(() => { polling = false; });
 }, 3000);
-window.addEventListener('pagehide', () => { stopDemo(); clearInterval(poll); world?.dispose(); lastToken = null; });
+window.addEventListener('pagehide', () => { stopDemo(); stopRealtime(); clearInterval(poll); world?.dispose(); lastToken = null; });

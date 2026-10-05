@@ -5,6 +5,7 @@ import { isIP } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { VillageError, SESSION_MS } from './village.mjs';
 import { createRobots, demoRobots, demoEvents, normalizeEvent, applyEvent, publicRobot } from './events.mjs';
+import { attachVillageWebSocket } from './realtime.mjs';
 
 const cookieName = 'agent_village_session';
 const cookieToken = req => /(?:^|;\s*)agent_village_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie ?? '')?.[1];
@@ -121,6 +122,9 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
       json(error instanceof VillageError ? error.status : 500, { error: error instanceof VillageError ? error.message : 'Não foi possível atender. Tente novamente.' });
     }
   });
+  const realtime = attachVillageWebSocket(server, village);
+  server.realtime = realtime;
+  server.on('close', () => { void realtime.close(); });
   server.requestTimeout = 15000;
   server.headersTimeout = 10000;
   return server;

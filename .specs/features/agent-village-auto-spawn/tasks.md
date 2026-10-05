@@ -15,6 +15,7 @@ Aplicar tlc-spec-driven. Cada tarefa deve atualizar seus testes, passar o gate, 
 | --- | --- | --- | --- | --- |
 | Connection/session domain | integration | Todos os ACs de spawn, lookup, lifecycle, corrida, revogação e migração | `apps/agent-village/tests/village.test.mjs`, `events.test.mjs` | `npm test --workspace apps/agent-village` |
 | HTTP connection API | integration | Rotas novas e legadas: happy path, bounds, auth e falhas | `apps/agent-village/tests/http.test.mjs` | `npm test --workspace apps/agent-village` |
+| Realtime snapshot channel | integration | Handshake autenticado, snapshot inicial, broadcast e rejeição | `apps/agent-village/tests/websocket.test.mjs` | `npm test --workspace apps/agent-village` |
 | Connector normalization | unit | Multi-sessão, parent opcional, redaction e sequência | `apps/agent-village/tests/connector.test.mjs` | `npm test --workspace apps/agent-village` |
 | Client UI/model | e2e + typecheck | Conexão criada, robôs descobertos, agrupamento e privacidade | `apps/agent-village/web/`, QA Chrome | `npm run typecheck --workspace apps/agent-village && npm run build --workspace apps/agent-village` |
 | Persistence/deploy docs | none | Build e documentação estrutural | `apps/agent-village/README.md`, `infra/dokploy/agent-village` | `npm run build --workspace apps/agent-village` |
@@ -134,7 +135,7 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: T6
 **Requirement**: OPS-01
 **Done when**:
-- [x] `npm test`, typecheck e build passam sem reduzir contagem de testes.
+- [x] `npm test`, typecheck e build passam sem reduzir contagem de testes, incluindo o canal WebSocket.
 - [x] Verifier independente registra PASS/FAIL com evidência file:line e sensor.
 - [ ] HML confirma healthz, conexão, dois robôs e privacidade.
 **Tests**: e2e + integration

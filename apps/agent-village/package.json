@@ -3,15 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22 <23" },
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:server": "node --watch --env-file-if-exists=.env server/index.mjs",
     "build": "npm run typecheck && vite build",
-    "typecheck": "tsc --noEmit && node --check server/events.mjs && node --check server/village.mjs && node --check server/http.mjs",
+    "typecheck": "tsc --noEmit && node --check server/events.mjs && node --check server/village.mjs && node --check server/http.mjs && node --check server/realtime.mjs",
     "test": "node --test",
     "start": "node --env-file-if-exists=.env server/index.mjs"
   },
-  "dependencies": { "three": "^0.170.0" },
-  "devDependencies": { "@types/three": "^0.170.0", "typescript": "^5.7.2", "vite": "^6.0.7" }
+  "dependencies": {
+    "three": "^0.170.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
 }

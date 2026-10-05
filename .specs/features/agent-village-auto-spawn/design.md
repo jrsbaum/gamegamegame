@@ -87,6 +87,7 @@ Criação e aplicação do primeiro evento precisam ocorrer dentro da mesma tran
 - `POST /api/events` autentica pelo token da conexão e resolve sessões dinamicamente.
 - `GET/PATCH /api/connections` expõe ao dono provider, label e default de privacidade sem token bruto.
 - Endpoints antigos de robô permanecem para leitura/edição de legados durante a migração; o cliente novo não os usa para criar instâncias.
+- `GET /ws` aceita o cookie de sessão da mesma origem, envia `hello` com o snapshot inicial, responde `snapshot.get` e transmite `snapshot` quando um evento aceito altera a vila. O navegador reconecta e usa polling HTTP apenas como fallback.
 
 ## Security and Privacy
 

@@ -104,8 +104,10 @@ export class JsonStore {
 export class Village {
   constructor(store, { inviteCode, now = Date.now } = {}) {
     if (typeof inviteCode !== 'string' || inviteCode.length < 8) throw Error('INVITE_CODE precisa ter pelo menos 8 caracteres');
-    this.store = store; this.inviteCode = inviteCode; this.now = now; this.presence = new Map();
+    this.store = store; this.inviteCode = inviteCode; this.now = now; this.presence = new Map(); this.listeners = new Set();
   }
+  subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  notify(ownerId) { for (const listener of this.listeners) { try { listener(ownerId); } catch { /* observers cannot break the store */ } } }
   authenticate(rawToken) {
     if (typeof rawToken !== 'string' || rawToken.length !== 64) throw new VillageError(401, 'Entre na sua conta.');
     const session = this.store.state.sessions.find(s => s.tokenHash === hash(rawToken) && s.expiresAt > this.now());
@@ -291,7 +293,7 @@ export class Village {
   async ingest(rawToken, input) {
     shape(input, ['sequence', 'event']);
     if (!Number.isSafeInteger(input.sequence) || input.sequence < 1) invalid();
-    return this.store.transact(state => {
+    const result = await this.store.transact(state => {
       if (typeof rawToken !== 'string' || rawToken.length !== 64) throw new VillageError(401, 'Token do robô inválido.');
       let connection = state.connections.find(candidate => candidate.connectorHash === hash(rawToken));
       let legacyRobot = null;
@@ -342,6 +344,9 @@ export class Village {
       if (accepted) robot.lastSignalAt = this.now();
       return legacyMode ? { accepted, status: robot.status } : { accepted, status: robot.status, robotId: robot.id, spawned };
     });
+    const connection = this.store.state.connections.find(candidate => candidate.connectorHash === hash(rawToken));
+    if (connection) this.notify(connection.ownerId);
+    return result;
   }
   me(ownerId) {
     const account = this.store.state.accounts.find(a => a.id === ownerId);
