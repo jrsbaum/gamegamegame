@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
+import { homedir } from 'node:os';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import { hookEvents, hookHandler, validateHookConfig } from './logic.mjs';
 

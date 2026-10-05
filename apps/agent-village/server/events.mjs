@@ -10,10 +10,11 @@ const cleanSummary = (value, max) => typeof value === 'string' && value.length >
 
 export function normalizeEvent(provider, raw) {
   if (!raw || typeof raw !== 'object') return null;
-  let sessionId, runId, action, toolId, name, title, description;
+  let sessionId, parentSessionId, runId, action, toolId, name, title, description;
   if (provider === 'codex') {
     if (raw.hook_event_name) {
       sessionId = raw.session_id;
+      parentSessionId = raw.parent_session_id || raw.parentSessionId;
       runId = raw.turn_id;
       name = raw.hook_event_name;
       title = cleanSummary(raw.title, 120);
@@ -28,6 +29,7 @@ export function normalizeEvent(provider, raw) {
     const p = raw.params || {};
     if (!raw.hook_event_name) {
       sessionId = p.threadId;
+      parentSessionId = p.parentSessionId || p.parent_session_id;
       runId = p.turnId || p.turn?.id;
       name = raw.method;
       if (name === 'turn/started') action = 'start';
@@ -43,21 +45,23 @@ export function normalizeEvent(provider, raw) {
     }
   } else if (provider === 'cursor') {
     sessionId = raw.conversation_id;
+    parentSessionId = raw.parent_session_id || raw.parentSessionId;
     runId = raw.generation_id;
     name = raw.hook_event_name;
     title = cleanSummary(raw.title, 120);
     description = cleanSummary(raw.description, 280);
-    if (name === 'beforeSubmitPrompt') action = 'start';
+    if (name === 'sessionStart' || name === 'beforeSubmitPrompt') action = 'start';
     if (name === 'preToolUse') { action = /^(Read|Search|Grep|Glob)$/i.test(raw.tool_name || '') ? 'readStart' : 'toolStart'; toolId = raw.tool_use_id; }
     if (name === 'postToolUse' || name === 'postToolUseFailure') { action = 'toolEnd'; toolId = raw.tool_use_id; }
     if (name === 'stop') action = ({completed:'finish',aborted:'interrupt',error:'error'})[raw.status];
     if (name === 'sessionEnd') action = 'disconnect';
   } else if (provider === 'claude') {
     sessionId = raw.session_id;
+    parentSessionId = raw.parent_session_id || raw.parentSessionId;
     name = raw.hook_event_name;
     title = cleanSummary(raw.title, 120);
     description = cleanSummary(raw.description, 280);
-    if (name === 'UserPromptSubmit') action = 'start';
+    if (name === 'SessionStart' || name === 'UserPromptSubmit' || name === 'SubagentStart') action = 'start';
     if (name === 'PreToolUse') { action = /^(Read|Search|Grep|Glob)$/i.test(raw.tool_name || '') ? 'readStart' : 'toolStart'; toolId = raw.tool_use_id; }
     if (name === 'PostToolUse' || name === 'PostToolUseFailure') { action = 'toolEnd'; toolId = raw.tool_use_id; }
     if (name === 'PermissionRequest') action = 'wait';
@@ -65,10 +69,10 @@ export function normalizeEvent(provider, raw) {
     if (name === 'StopFailure') action = 'error';
     if (name === 'SessionEnd') action = 'disconnect';
   }
-  if (!action || !validId(sessionId) || (runId !== undefined && !validId(runId)) || (toolId !== undefined && !validId(toolId))) return null;
+  if (!action || !validId(sessionId) || (parentSessionId !== undefined && !validId(parentSessionId)) || (runId !== undefined && !validId(runId)) || (toolId !== undefined && !validId(toolId))) return null;
   if (['toolStart', 'readStart', 'toolEnd'].includes(action) && !toolId) return null;
   // Retain only the bounded, pre-redacted task summary; never retain full prompts, arguments, replies or credentials.
-  return {provider,sessionId,runId,action,toolId,name,title,description};
+  return {provider,sessionId,parentSessionId,runId,action,toolId,name,title,description};
 }
 
 export function createRobots(definitions) {
@@ -84,6 +88,7 @@ export function applyEvent(robots, event) {
   if (!robot) return null; // Only sessions registered by their connector are accepted.
   if (event.runId && robot.runId && event.runId !== robot.runId && event.action !== 'start') return null;
   if (event.action === 'start') {
+    if (['completed', 'interrupted', 'error', 'offline'].includes(robot.status)) return null;
     robot.runId = event.runId || null;
     robot.tools = [];
     robot.status = 'working';

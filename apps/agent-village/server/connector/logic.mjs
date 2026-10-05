@@ -124,6 +124,7 @@ export function sanitizeEvent(provider, raw) {
 export function hookEvents(provider) {
   if (provider === 'codex') return ['SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop', 'SessionEnd'];
   if (provider === 'claude') return ['SessionStart', 'UserPromptSubmit', 'SubagentStart', 'SubagentStop', 'PreToolUse', 'PostToolUse', 'PermissionRequest', 'Stop', 'SessionEnd'];
+  if (provider === 'cursor') return ['sessionStart', 'beforeSubmitPrompt', 'preToolUse', 'postToolUse', 'postToolUseFailure', 'stop', 'sessionEnd'];
   return [];
 }
 

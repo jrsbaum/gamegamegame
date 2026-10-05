@@ -85,7 +85,7 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
         }
         if (method === 'POST' && path === '/api/events') return json(200, await village.ingest(bearerToken(req), await body(req)));
         if (method === 'POST' && path === '/api/pairings/exchange') return json(200, await village.exchangePairing((await body(req)).code));
-        if (!['/api/me', '/api/village', '/api/desk', '/api/robots', '/api/pairings', '/api/auth/logout'].includes(path) && !/^\/api\/robots\/[^/]+(?:\/token)?$/.test(path)) throw new VillageError(404, 'Destino não encontrado.');
+        if (!['/api/me', '/api/village', '/api/desk', '/api/robots', '/api/pairings', '/api/connections', '/api/auth/logout'].includes(path) && !/^\/api\/(?:robots|connections)\/[^/]+(?:\/token)?$/.test(path)) throw new VillageError(404, 'Destino não encontrado.');
         const owner = village.authenticate(cookieToken(req));
         if (method === 'GET' && path === '/api/me') return json(200, village.me(owner.id));
         if (method === 'GET' && path === '/api/village') return json(200, village.snapshot(owner.id));
@@ -97,10 +97,15 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
         if (method === 'PATCH' && path === '/api/desk') return json(200, await village.updateDesk(owner.id, await body(req)));
         if (method === 'POST' && path === '/api/robots') return json(201, await village.createRobot(owner.id, await body(req)));
         if (method === 'POST' && path === '/api/pairings') return json(201, await village.createPairing(owner.id, await body(req)));
+        if (method === 'GET' && path === '/api/connections') return json(200, village.me(owner.id).connections);
         const match = /^\/api\/robots\/([^/]+)(\/token)?$/.exec(path);
         if (match && method === 'PATCH' && !match[2]) return json(200, await village.updateRobot(owner.id, match[1], await body(req)));
         if (match && method === 'DELETE' && !match[2]) { await village.deleteRobot(owner.id, match[1]); return json(200, { ok: true }); }
         if (match && method === 'POST' && match[2]) return json(200, await village.rotateToken(owner.id, match[1]));
+        const connectionMatch = /^\/api\/connections\/([^/]+)(\/token)?$/.exec(path);
+        if (connectionMatch && method === 'PATCH' && !connectionMatch[2]) return json(200, await village.updateConnection(owner.id, connectionMatch[1], await body(req)));
+        if (connectionMatch && method === 'DELETE' && !connectionMatch[2]) { await village.deleteConnection(owner.id, connectionMatch[1]); return json(200, { ok: true }); }
+        if (connectionMatch && method === 'POST' && connectionMatch[2]) return json(200, await village.rotateConnectionToken(owner.id, connectionMatch[1]));
         throw new VillageError(404, 'Destino não encontrado.');
       }
       if (method !== 'GET' && method !== 'HEAD') throw new VillageError(404, 'Destino não encontrado.');

@@ -87,7 +87,9 @@ test('ROBOT-02/03/06: token fixes ownership/session, sequence orders concurrent 
   await assert.rejects(village.ingest('bad', { sequence: 1, event: start('one') }), { status: 401 });
   await assert.rejects(village.ingest(first.token, { sequence: 1, event: start('two') }), { status: 400 });
   assert.deepEqual(await village.ingest(first.token, { sequence: 2, event: start('one') }), { accepted: true, status: 'working' });
-  assert.deepEqual(await village.ingest(first.token, { sequence: 1, event: start('one') }), { accepted: false, status: 'working' });
+  const stale = await village.ingest(first.token, { sequence: 1, event: start('one') });
+  assert.equal(stale.accepted, false);
+  assert.equal(stale.status, 'working');
   assert.equal(village.snapshot(b.id).members.find(m => m.id === a.id).online, false);
   assert.equal(village.me(a.id).robots.find(r => r.id === second.robot.id).status, 'idle');
   assert.equal(village.snapshot(b.id).robots.find(r => r.id === first.robot.id).lastSignalAt, 21001);
@@ -105,25 +107,29 @@ test('ROBOT-07: rotation and deletion revoke collector tokens', async t => {
   assert.deepEqual(village.me(a.id).robots, []);
 });
 
-test('CONN-02/06/07/08: one-use pairing provisions a pending robot and binds its first session', async t => {
+test('CONN-02/06/07/08: one-use pairing provisions a connection and lazily binds its first session', async t => {
   const { village, store, file } = await setup(t);
   const owner = (await village.register(account())).account;
   const created = await village.createPairing(owner.id, { provider: 'codex', label: 'Meu Codex' });
   assert.match(created.pairing.code, /^VILA-[A-F0-9]{12}$/);
-  assert.equal(created.robot.status, 'pending');
-  assert.equal(created.robot.sessionId, null);
+  assert.equal(created.connection.provisioned, false);
+  assert.equal(village.me(owner.id).robots.length, 0);
   assert.equal((await JsonStore.open(file)).state.pairings.length, 1);
   const exchanged = await village.exchangePairing(created.pairing.code.toLowerCase());
   assert.equal(exchanged.token.length, 64);
-  assert.equal(exchanged.robot.status, 'idle');
-  assert.equal(exchanged.robot.sessionId, null);
+  assert.equal(exchanged.connection.provisioned, true);
+  assert.equal(village.me(owner.id).robots.length, 0);
   assert.equal(store.state.pairings.length, 0);
   assert.equal((await JsonStore.open(file)).state.pairings.length, 0);
   await assert.rejects(village.exchangePairing(created.pairing.code), { status: 410 });
   const event = { method: 'turn/started', params: { threadId: 'real-thread', turn: { id: 'turn-1' } } };
-  assert.deepEqual(await village.ingest(exchanged.token, { sequence: 1, event }), { accepted: true, status: 'working' });
+  const spawned = await village.ingest(exchanged.token, { sequence: 1, event });
+  assert.equal(spawned.accepted, true);
+  assert.equal(spawned.spawned, true);
   assert.equal(village.me(owner.id).robots[0].sessionId, 'real-thread');
-  await assert.rejects(village.ingest(exchanged.token, { sequence: 2, event: { ...event, params: { ...event.params, threadId: 'other-thread' } } }), { status: 400 });
+  const second = await village.ingest(exchanged.token, { sequence: 2, event: { ...event, params: { ...event.params, threadId: 'other-thread' } } });
+  assert.equal(second.accepted, true);
+  assert.equal(second.spawned, true);
 });
 
 test('CONN-04: expired pairing removes the unprovisioned robot', async t => {
