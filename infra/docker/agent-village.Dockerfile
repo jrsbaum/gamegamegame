@@ -12,6 +12,7 @@ WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3340 DATA_FILE=/data/village.json
 RUN mkdir /data && chown node:node /data
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
 COPY server ./server
 USER node
 EXPOSE 3340
