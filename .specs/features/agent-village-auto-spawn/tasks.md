@@ -134,8 +134,8 @@ Phase 1 → Phase 2 → Phase 3
 **Depends on**: T6
 **Requirement**: OPS-01
 **Done when**:
-- [ ] `npm test`, typecheck e build passam sem reduzir contagem de testes.
-- [ ] Verifier independente registra PASS/FAIL com evidência file:line e sensor.
+- [x] `npm test`, typecheck e build passam sem reduzir contagem de testes.
+- [x] Verifier independente registra PASS/FAIL com evidência file:line e sensor.
 - [ ] HML confirma healthz, conexão, dois robôs e privacidade.
 **Tests**: e2e + integration
 **Gate**: Build
