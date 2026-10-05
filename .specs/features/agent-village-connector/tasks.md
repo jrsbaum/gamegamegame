@@ -61,6 +61,7 @@ T1 → T2 → T3 → T4
 
 ### T4: Documentation, regression and validation
 
+**Status**: ✅ Done
 **What**: Document local auth boundary, install/uninstall commands, privacy payload and HML validation; run full gates and independent verification.
 **Where**: `apps/agent-village/README.md`, `.specs/features/agent-village-connector/`.
 **Depends on**: T3.
