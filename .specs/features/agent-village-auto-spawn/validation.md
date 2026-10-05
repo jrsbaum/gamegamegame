@@ -2,7 +2,7 @@
 
 **Data**: 2026-10-05
 **Spec**: `.specs/features/agent-village-auto-spawn/spec.md`
-**Diff range**: `60e8a0a..00f447d`
+**Diff range**: `60e8a0a..9e55751`
 **Verifier**: sub-agent independente (autor ≠ verifier)
 
 ## Veredito
@@ -46,6 +46,29 @@ serviço. Isso permanece como validação operacional pendente antes da promoç�
 **Cobertura local**: 14/14 critérios com evidência de implementação/assert; o
 critério operacional inclui a ressalva explícita de HML não executado.
 
+## Revalidação do canal WebSocket
+
+O commit `9e55751` adiciona o canal `/ws` e o teste `websocket.test.mjs`. Os
+casos abaixo foram verificados no HEAD atual; quando a evidência é inspeção de
+fonte, isso fica indicado porque o teste existente não cobre esse ramo
+explicitamente.
+
+| Caso | Resultado esperado | Evidência `file:line` | Resultado |
+| --- | --- | --- | --- |
+| WS-01 — handshake same-origin por cookie | O upgrade usa o cookie HttpOnly da sessão e não aceita token na URL | `apps/agent-village/tests/websocket.test.mjs:17-29` abre `/ws` com `Cookie`; `apps/agent-village/server/realtime.mjs:30-36` lê/autentica o cookie antes do upgrade. | ✅ PASS |
+| WS-02 — `hello` inicial e broadcast após ingest | Cada viewer recebe `hello`; um evento aceito publica `snapshot` aos viewers | `apps/agent-village/tests/websocket.test.mjs:31-53` verifica `hello`, dois snapshots, uma sessão e ausência de `sessionId`; `apps/agent-village/server/realtime.mjs:16-23,40-48` e `apps/agent-village/server/village.mjs:347-349` ligam `subscribe` ao `ingest`. | ✅ PASS |
+| WS-03 — credencial ausente/inválida | O servidor rejeita antes do upgrade com HTTP 401 | `apps/agent-village/tests/websocket.test.mjs:56-64` espera `unexpected 401`; `apps/agent-village/server/realtime.mjs:25-36` escreve 401 e destrói o socket. | ✅ PASS |
+| WS-04 — `snapshot.get` | Mensagem válida retorna um snapshot autenticado | `apps/agent-village/server/realtime.mjs:44-48` trata exatamente `snapshot.get`; o cliente envia a mensagem em `apps/agent-village/web/main.ts:80-88`. | ✅ PASS (inspeção de fonte; sem assert dedicado no teste) |
+| WS-05 — fechamento e reconexão | Fechamento limpa o cliente; a UI agenda nova conexão e repete o handshake | `apps/agent-village/server/realtime.mjs:50-63` remove clientes/fecha o gateway; `apps/agent-village/web/main.ts:62-97` encerra, agenda retry de 1,5 s e reconecta. | ✅ PASS (inspeção de fonte; sem assert dedicado no teste) |
+| WS-06 — fallback de polling | Polling HTTP continua ativo quando o socket não está aberto | `apps/agent-village/web/main.ts:261-264` chama `loadReal()` a cada 3 s quando `realtimeSocket` não está OPEN. | ✅ PASS (inspeção de fonte) |
+| WS-07 — projeção pública | `sessionId`, `connectionId`, `parentSessionId` e segredos não atravessam o snapshot | `apps/agent-village/tests/websocket.test.mjs:49-53` verifica ausência de `sessionId`; `apps/agent-village/server/events.mjs:122-127` constrói allowlist sem IDs privados. | ✅ PASS |
+| WS-08 — compatibilidade HTTP/legada | Rotas HTTP e ingest legado permanecem disponíveis | `apps/agent-village/server/http.mjs:87-109` mantém `/api/events`, pairings, robots e connections; `apps/agent-village/server/village.mjs:299-345` preserva lookup por token de robô legado; `apps/agent-village/tests/http.test.mjs:150-176` cobre pairing/eventos e isolamento. | ✅ PASS |
+
+O smoke adicional de `snapshot.get`/reconexão foi iniciado, mas não produziu
+saída antes do timeout do runner e não foi contado como gate. O resultado
+determinístico permanece o `websocket.test.mjs` (2/2), complementado pela
+inspeção dos caminhos de código acima.
+
 ## Edge cases
 
 | Caso | Evidência | Resultado |
@@ -83,7 +106,7 @@ As mutações foram aplicadas somente em worktrees temporários derivados do
 
 | Comando | Resultado |
 | --- | --- |
-| `npm test --workspace apps/agent-village` | ✅ PASS — 42/42 testes, 0 falhas, 0 skips; `00f447d`. |
+| `npm test --workspace apps/agent-village` | ✅ PASS — 44/44 testes, 0 falhas, 0 skips; `9e55751`. Inclui `tests/websocket.test.mjs` (2/2). |
 | `npm run typecheck --workspace apps/agent-village` | ✅ PASS — exit 0. |
 | `npm run build --workspace apps/agent-village` | ✅ PASS — Vite build; somente aviso existente de chunk acima de 500 kB. |
 | `git diff --check 60e8a0a..HEAD` | ✅ PASS — exit 0. |
@@ -94,7 +117,7 @@ As mutações foram aplicadas somente em worktrees temporários derivados do
 
 Durante a investigação, uma execução no checkout anterior `fbf2c53` falhou
 intermitentemente em `CONN-12` (`7 !== 8`), e três repetições tiveram uma
-falha. O `HEAD` validado aqui executou 42/42 com sucesso; a intermitência do
+falha. O `HEAD` validado aqui executou 44/44 com sucesso; a intermitência do
 coletor concorrente permanece um risco a observar em CI, embora não tenha
 reproduzido nesta execução final.
 
@@ -106,6 +129,6 @@ reproduzido nesta execução final.
 - ✅ `AGENTS.md`, `apps/agent-village/AGENTS.md` e `tlc-spec-driven/SKILL.md` foram seguidos.
 - ⏭️ HML, navegador interativo, hook real de provedor e volume Docker continuam fora desta validação local.
 
-**Resumo**: PASS local ✅ — 14/14 ACs cobertos, 2/2 mutações mortas, 42/42
+**Resumo**: PASS local ✅ — 14/14 ACs cobertos, 2/2 mutações mortas, 44/44
 testes, typecheck/build/diff/validadores verdes. HML deve ser executado por
 um operador autorizado antes da promoção.
