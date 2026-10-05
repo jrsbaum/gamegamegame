@@ -20,13 +20,13 @@ Depois de entrar na vila, abra **Minha mesa e meus robôs → Adicionar Codex ou
 
 O login do Codex ou Claude continua no aplicativo do provedor. A vila não pede senha, API key ou transcript. O primeiro evento recebido vincula automaticamente o ID privado da sessão; ele não precisa ser digitado no navegador. Para remover a conexão, use **Remover robô** e retire o bloco identificado pelo comando do agente no arquivo de hooks local. Girar o token revoga o anterior.
 
-O pareamento usa `POST /api/pairings` (cookie da conta) e `POST /api/pairings/exchange` (código de uso único). O coletor local envia apenas provedor, sessão, ação de ciclo de vida, IDs de ferramenta/turno permitidos e sequência para `POST /api/events`. Prompts, argumentos, respostas, caminhos, tokens e credenciais são filtrados antes do envio e novamente no servidor.
+O pareamento usa `POST /api/pairings` (cookie da conta) e `POST /api/pairings/exchange` (código de uso único). O coletor local deriva da tarefa atual um título da primeira linha e uma descrição curta, ambos limitados, e envia somente esse resumo junto do provedor, sessão, ação de ciclo de vida, IDs de ferramenta/turno permitidos e sequência para `POST /api/events`. O prompt completo, argumentos, respostas, caminhos, tokens e credenciais são filtrados antes do envio e novamente no servidor; blocos de código e linhas identificadas como resposta também ficam fora do resumo.
 
 ## Coletor
 
 O cadastro de um robô devolve um token uma única vez. O coletor envia somente eventos normalizados do provedor para `POST /api/events` com `Authorization: Bearer <token>` e um `sequence` crescente. O token não pode criar contas, alterar privacidade ou acessar outro robô. O servidor descarta prompts, argumentos, respostas, nomes de arquivos e credenciais antes de atualizar o estado.
 
-O público recebe uma projeção allowlist. `none` (padrão) mostra só estado; `title` acrescenta o título autorizado; `description` acrescenta título e descrição autorizados. `lastSignalAt` é apenas o horário do último sinal aceito. Sem coletor ativo, o app não promete atividade ao vivo.
+O público recebe uma projeção allowlist. `none` (padrão) mostra só estado no balão do robô; `title` mostra somente o título atual no balão; `description` mostra estado e título abreviado no balão e deixa a descrição atual no caderninho. O título e a descrição nunca são digitados manualmente no navegador. `lastSignalAt` é apenas o horário do último sinal aceito. Sem coletor ativo, o app não promete atividade ao vivo.
 
 ## Persistência e limites
 

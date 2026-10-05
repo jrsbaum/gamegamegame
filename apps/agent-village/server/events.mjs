@@ -6,14 +6,18 @@ export const statusLabels = {
   error: 'Precisa de ajuda', offline: 'Desconectado'
 };
 
+const cleanSummary = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value) ? value : undefined;
+
 export function normalizeEvent(provider, raw) {
   if (!raw || typeof raw !== 'object') return null;
-  let sessionId, runId, action, toolId, name;
+  let sessionId, runId, action, toolId, name, title, description;
   if (provider === 'codex') {
     if (raw.hook_event_name) {
       sessionId = raw.session_id;
       runId = raw.turn_id;
       name = raw.hook_event_name;
+      title = cleanSummary(raw.title, 120);
+      description = cleanSummary(raw.description, 280);
       if (name === 'SessionStart' || name === 'UserPromptSubmit') action = 'start';
       if (name === 'PreToolUse') { action = /^(Read|Search|Grep|Glob)$/i.test(raw.tool_name || '') ? 'readStart' : 'toolStart'; toolId = raw.tool_use_id; }
       if (name === 'PostToolUse') { action = 'toolEnd'; toolId = raw.tool_use_id; }
@@ -41,6 +45,8 @@ export function normalizeEvent(provider, raw) {
     sessionId = raw.conversation_id;
     runId = raw.generation_id;
     name = raw.hook_event_name;
+    title = cleanSummary(raw.title, 120);
+    description = cleanSummary(raw.description, 280);
     if (name === 'beforeSubmitPrompt') action = 'start';
     if (name === 'preToolUse') { action = /^(Read|Search|Grep|Glob)$/i.test(raw.tool_name || '') ? 'readStart' : 'toolStart'; toolId = raw.tool_use_id; }
     if (name === 'postToolUse' || name === 'postToolUseFailure') { action = 'toolEnd'; toolId = raw.tool_use_id; }
@@ -49,6 +55,8 @@ export function normalizeEvent(provider, raw) {
   } else if (provider === 'claude') {
     sessionId = raw.session_id;
     name = raw.hook_event_name;
+    title = cleanSummary(raw.title, 120);
+    description = cleanSummary(raw.description, 280);
     if (name === 'UserPromptSubmit') action = 'start';
     if (name === 'PreToolUse') { action = /^(Read|Search|Grep|Glob)$/i.test(raw.tool_name || '') ? 'readStart' : 'toolStart'; toolId = raw.tool_use_id; }
     if (name === 'PostToolUse' || name === 'PostToolUseFailure') { action = 'toolEnd'; toolId = raw.tool_use_id; }
@@ -59,8 +67,8 @@ export function normalizeEvent(provider, raw) {
   }
   if (!action || !validId(sessionId) || (runId !== undefined && !validId(runId)) || (toolId !== undefined && !validId(toolId))) return null;
   if (['toolStart', 'readStart', 'toolEnd'].includes(action) && !toolId) return null;
-  // Do not retain prompts, tool arguments, replies, filenames or credentials.
-  return {provider,sessionId,runId,action,toolId,name};
+  // Retain only the bounded, pre-redacted task summary; never retain full prompts, arguments, replies or credentials.
+  return {provider,sessionId,runId,action,toolId,name,title,description};
 }
 
 export function createRobots(definitions) {
@@ -79,6 +87,10 @@ export function applyEvent(robots, event) {
     robot.runId = event.runId || null;
     robot.tools = [];
     robot.status = 'working';
+    if (event.name === 'UserPromptSubmit' || event.name === 'beforeSubmitPrompt') {
+      robot.title = event.title || undefined;
+      robot.description = event.description || undefined;
+    }
   } else if (event.action === 'toolStart' || event.action === 'readStart') {
     if (['completed','interrupted','error','offline'].includes(robot.status)) return null;
     if (event.toolId && !robot.tools.some(tool => tool.id === event.toolId)) robot.tools.push({id:event.toolId,reading:event.action === 'readStart'});
@@ -105,8 +117,8 @@ export function applyEvent(robots, event) {
 export function publicRobot(robot) {
   // This must run on the server before broadcasting in the shared product.
   const out = {id:robot.id,ownerId:robot.ownerId,label:robot.label,provider:robot.provider,status:robot.status,simulated:Boolean(robot.simulated),lastSignalAt:robot.lastSignalAt ?? null};
-  if (['title','description'].includes(robot.privacy)) out.title = String(robot.title || '').slice(0,120);
-  if (robot.privacy === 'description') out.description = String(robot.description || '').slice(0,280);
+  if (['title','description'].includes(robot.privacy) && robot.title) out.title = String(robot.title).slice(0,120);
+  if (robot.privacy === 'description' && robot.description) out.description = String(robot.description).slice(0,280);
   return out;
 }
 

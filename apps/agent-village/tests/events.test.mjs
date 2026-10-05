@@ -89,3 +89,26 @@ test('CONN-05: Codex lifecycle hooks map to the existing reducer without private
   assert.equal(applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', turn_id: 'turn', hook_event_name: 'PostToolUse', tool_use_id: 'tool' })).status, 'working');
   assert.equal(applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', hook_event_name: 'Stop' })).status, 'completed');
 });
+
+test('BUBBLE-02: a new task replaces the summary and later tools preserve it', () => {
+  const robots = createRobots([{ id: 'task-robot', ownerId: 'owner', provider: 'codex', sessionId: 'hook-session', label: 'Codex', privacy: 'none', title: '', description: '' }]);
+  const start = normalizeEvent('codex', { session_id: 'hook-session', turn_id: 'turn-1', hook_event_name: 'UserPromptSubmit', title: 'Organizar a vila', description: 'Ajustar o painel lateral.' });
+  applyEvent(robots, start);
+  assert.equal(robots[0].title, 'Organizar a vila');
+  assert.equal(robots[0].description, 'Ajustar o painel lateral.');
+  applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', turn_id: 'turn-1', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'tool' }));
+  assert.equal(robots[0].title, 'Organizar a vila');
+  assert.equal(robots[0].description, 'Ajustar o painel lateral.');
+  applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', turn_id: 'turn-2', hook_event_name: 'UserPromptSubmit', title: 'Revisar os testes', description: 'Conferir os estados do robô.' }));
+  assert.equal(robots[0].title, 'Revisar os testes');
+  assert.equal(robots[0].description, 'Conferir os estados do robô.');
+});
+
+test('BUBBLE-03: an empty submitted task clears the prior summary', () => {
+  const robots = createRobots([{ id: 'empty-task', ownerId: 'owner', provider: 'codex', sessionId: 'hook-session', label: 'Codex', privacy: 'none', title: 'Tarefa anterior', description: 'Contexto anterior' }]);
+  applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', hook_event_name: 'SessionStart' }));
+  assert.equal(robots[0].title, 'Tarefa anterior');
+  applyEvent(robots, normalizeEvent('codex', { session_id: 'hook-session', hook_event_name: 'UserPromptSubmit' }));
+  assert.equal(robots[0].title, undefined);
+  assert.equal(robots[0].description, undefined);
+});
