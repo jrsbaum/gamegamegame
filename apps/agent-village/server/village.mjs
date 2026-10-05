@@ -176,10 +176,10 @@ export class Village {
     });
   }
   async createPairing(ownerId, input) {
-    shape(input, ['provider', 'label', 'privacy']);
+    shape(input, ['provider', 'label', 'privacy', 'defaultPrivacy']);
     if (!['codex', 'claude'].includes(input.provider)) invalid();
     const label = text(typeof input.label === 'string' ? input.label.trim() : input.label, 1, 32);
-    const privacy = input.privacy ?? 'none';
+    const privacy = input.defaultPrivacy ?? input.privacy ?? 'none';
     if (!['none', 'title', 'description'].includes(privacy)) invalid();
     return this.store.transact(state => {
       const now = this.now();
@@ -237,18 +237,20 @@ export class Village {
     });
   }
   ownConnection(connection) {
-    return { id: connection.id, provider: connection.provider, label: connection.label, privacy: connection.defaultPrivacy ?? connection.privacy ?? 'none', provisioned: Boolean(connection.provisioned), installed: Boolean(connection.provisioned), lastSignalAt: connection.lastSignalAt ?? null };
+    const privacy = connection.defaultPrivacy ?? connection.privacy ?? 'none';
+    return { id: connection.id, provider: connection.provider, label: connection.label, privacy, defaultPrivacy: privacy, provisioned: Boolean(connection.provisioned), installed: Boolean(connection.provisioned), lastSignalAt: connection.lastSignalAt ?? null };
   }
   ownRobot(robot) {
     return { ...publicRobot(robot), connectionId: robot.connectionId ?? null, sessionId: robot.sessionId, parentSessionId: robot.parentSessionId ?? null, parentRobotId: robot.parentRobotId ?? null, privacy: robot.privacy, title: robot.title, description: robot.description };
   }
   async updateConnection(ownerId, id, input) {
-    shape(input, ['privacy', 'label']);
-    if ('privacy' in input && !['none', 'title', 'description'].includes(input.privacy)) invalid();
+    shape(input, ['privacy', 'defaultPrivacy', 'label']);
+    const requestedPrivacy = input.defaultPrivacy ?? input.privacy;
+    if (requestedPrivacy !== undefined && !['none', 'title', 'description'].includes(requestedPrivacy)) invalid();
     if ('label' in input) text(typeof input.label === 'string' ? input.label.trim() : input.label, 1, 32);
     return this.store.transact(state => {
       const connection = ownerConnection(state, ownerId, id);
-      if ('privacy' in input) connection.defaultPrivacy = input.privacy;
+      if (requestedPrivacy !== undefined) connection.defaultPrivacy = requestedPrivacy;
       if ('label' in input) connection.label = input.label.trim();
       return this.ownConnection(connection);
     });
