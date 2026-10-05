@@ -161,7 +161,7 @@ function renderAccount() {
 async function loadDemo() { const next = await api<Snapshot>(`/api/demo?step=${step}`); if (!simulated) return; snapshot = next; if (!selection || !snapshot.robots.some(r => r.id === selection!.id)) selection = { kind: 'robot', id: snapshot.robots[0].id }; renderScene(); }
 async function loadReal(configuration = false) {
   simulated = false;
-  if (configuration || pairing) me = await api<Me>('/api/me');
+  if (me) me = await api<Me>('/api/me');
   const next = await api<Snapshot>('/api/village'); if (simulated) return;
   // The public snapshot intentionally omits connection/session identifiers.
   // Merge those safe-for-owner fields locally so the owner's roster can group
