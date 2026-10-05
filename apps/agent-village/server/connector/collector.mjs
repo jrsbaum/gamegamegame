@@ -34,11 +34,35 @@ async function nextSequence() {
         return next;
       } finally { await unlink(lock).catch(() => {}); }
     } catch (error) {
-      if (error.code !== 'EEXIST') throw error;
+      // Windows can briefly expose the config during an atomic rename. Treat
+      // that transient read/rename failure like lock contention so one of N
+      // interleaved sessions does not lose its sequence allocation.
+      if (!['EEXIST', 'ENOENT', 'EPERM', 'EACCES'].includes(error.code) && !(error instanceof SyntaxError)) throw error;
       await sleep(25);
     }
   }
   throw Error('sequence lock timeout');
+}
+
+async function sendEvent(config, payload) {
+  let failure;
+  // A hook can be retried by a harness. Reuse the same sequence for retries:
+  // the server can safely answer accepted=false for an already seen event.
+  for (const delay of [0, 75, 200]) {
+    if (delay) await sleep(delay);
+    try {
+      const response = await fetch(`${config.endpoint}/api/events`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.token}` },
+        body: JSON.stringify(payload), signal: AbortSignal.timeout(2500),
+      });
+      if (response.ok) return true;
+      // Authentication and validation failures are deterministic. Do not
+      // retry them, but let main() report the failed signal to the harness.
+      if (response.status >= 400 && response.status < 500) return false;
+      failure = Error(`event rejected (${response.status})`);
+    } catch (error) { failure = error; }
+  }
+  throw failure || Error('event rejected');
 }
 
 async function main() {
@@ -50,11 +74,7 @@ async function main() {
     const event = sanitizeEvent(config.provider, raw);
     if (!event) return;
     const sequence = await nextSequence();
-    const response = await fetch(`${config.endpoint}/api/events`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.token}` },
-      body: JSON.stringify({ sequence, event }), signal: AbortSignal.timeout(2500),
-    });
-    if (!response.ok) throw Error('event rejected');
+    if (!await sendEvent(config, { sequence, event })) throw Error('event rejected');
   } catch { process.stderr.write('Vila dos Agentes: sinal não enviado.\n'); }
 }
 
