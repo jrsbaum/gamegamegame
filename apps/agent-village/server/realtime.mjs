@@ -10,14 +10,16 @@ const send = (client, payload) => {
 };
 
 /** Attach the same-origin realtime channel used by the village UI. */
-export function attachVillageWebSocket(server, village, { path = '/ws', cookieName = 'agent_village_session' } = {}) {
+export function attachVillageWebSocket(server, village, { path = '/ws', cookieName = 'agent_village_session', publicOrigin } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   const clients = new Map();
-  const unsubscribe = village.subscribe(ownerId => {
-    const members = clients.get(ownerId);
-    if (!members?.size) return;
-    const payload = { type: 'snapshot', snapshot: village.snapshot(ownerId) };
-    for (const client of members) send(client, payload);
+  const unsubscribe = village.subscribe(() => {
+    // Every viewer gets the same public world update, while snapshot() still
+    // records that viewer's own presence timestamp.
+    for (const [viewerId, members] of clients) {
+      const payload = { type: 'snapshot', snapshot: village.snapshot(viewerId) };
+      for (const client of members) send(client, payload);
+    }
   });
 
   const reject = (socket, status = '401 Unauthorized') => {
@@ -28,6 +30,7 @@ export function attachVillageWebSocket(server, village, { path = '/ws', cookieNa
   const onUpgrade = (request, socket, head) => {
     const url = new URL(request.url ?? '/', 'http://localhost');
     if (url.pathname !== path) return;
+    if (request.headers.origin && request.headers.origin !== publicOrigin) { reject(socket, '403 Forbidden'); return; }
     let account;
     try { account = village.authenticate(cookieValue(request, cookieName)); } catch { reject(socket); return; }
     wss.handleUpgrade(request, socket, head, client => wss.emit('connection', client, account.id));

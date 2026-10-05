@@ -122,7 +122,7 @@ export function createVillageServer(village, { publicOrigin, dist, trustProxy = 
       json(error instanceof VillageError ? error.status : 500, { error: error instanceof VillageError ? error.message : 'Não foi possível atender. Tente novamente.' });
     }
   });
-  const realtime = attachVillageWebSocket(server, village);
+  const realtime = attachVillageWebSocket(server, village, { publicOrigin: configuredOrigin });
   server.realtime = realtime;
   server.on('close', () => { void realtime.close(); });
   server.requestTimeout = 15000;

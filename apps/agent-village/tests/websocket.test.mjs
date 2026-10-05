@@ -23,21 +23,33 @@ test('WS-01/WS-02: same-origin websocket authenticates by cookie and broadcasts 
   const port = server.address().port;
   const cookieResponse = await fetch(`http://127.0.0.1:${port}/api/auth/register`, { method: 'POST', headers: { Origin: 'http://localhost:5176', 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'socket-owner', displayName: 'Socket owner', password: 'senha-local-segura', inviteCode: 'friends-only' }) });
   const cookie = cookieResponse.headers.get('set-cookie').split(';')[0];
+  const friendResponse = await fetch(`http://127.0.0.1:${port}/api/auth/register`, { method: 'POST', headers: { Origin: 'http://localhost:5176', 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'socket-friend', displayName: 'Socket friend', password: 'senha-local-segura', inviteCode: 'friends-only' }) });
+  const friendCookie = friendResponse.headers.get('set-cookie').split(';')[0];
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { Cookie: cookie } });
-  t.after(async () => { socket.close(); await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); });
+  const friendSocket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers: { Cookie: friendCookie } });
+  t.after(async () => { socket.close(); friendSocket.close(); await new Promise(resolve => server.close(resolve)); await rm(dir, { recursive: true, force: true }); });
   const helloPromise = nextMessage(socket);
+  const friendHelloPromise = nextMessage(friendSocket);
   await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
+  await new Promise((resolve, reject) => { friendSocket.once('open', resolve); friendSocket.once('error', reject); });
   const hello = await helloPromise;
+  const friendHello = await friendHelloPromise;
   assert.equal(hello.type, 'hello');
+  assert.equal(friendHello.type, 'hello');
   assert.equal(hello.snapshot.robots.length, 0);
 
   const owner = village.store.state.accounts[0];
   const pairing = await village.createPairing(owner.id, { provider: 'codex', label: 'Codex local' });
   const { token } = await village.exchangePairing(pairing.pairing.code);
+  const ownerUpdatePromise = nextMessage(socket);
+  const friendUpdatePromise = nextMessage(friendSocket);
   await village.ingest(token, { sequence: 1, event: { method: 'turn/started', params: { threadId: 'socket-session', turn: { id: 'turn-1' } } } });
-  const update = await nextMessage(socket);
+  const update = await ownerUpdatePromise;
+  const friendUpdate = await friendUpdatePromise;
   assert.equal(update.type, 'snapshot');
+  assert.equal(friendUpdate.type, 'snapshot');
   assert.equal(update.snapshot.robots.length, 1);
+  assert.equal(friendUpdate.snapshot.robots.length, 1);
   assert.equal('sessionId' in update.snapshot.robots[0], false);
 });
 
