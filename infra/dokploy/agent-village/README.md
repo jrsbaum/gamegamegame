@@ -19,7 +19,7 @@ AGENT_VILLAGE_DATA_VOLUME=gamegamegame-agent-village
 AGENT_VILLAGE_INVITE_CODE=<segredo com pelo menos 16 caracteres>
 ```
 
-Não reutilize volumes de Caracol, LaFarmer ou Dokploy. O serviço é uma réplica única porque o armazenamento JSON não é multi-processo. O Compose já liga a rede `dokploy-network`, o healthcheck `/healthz`, TLS e routers exclusivos.
+Não reutilize volumes de Caracol, LaFarmer ou Dokploy. O serviço é uma réplica única porque o armazenamento JSON não é multi-processo. O Compose já liga a rede `dokploy-network`, o healthcheck `/healthz`, TLS e routers exclusivos. O Dockerfile copia as dependências de runtime para a imagem final porque o servidor usa o pacote `ws` no canal WebSocket.
 
 Valide localmente na raiz, sem segredos reais:
 
