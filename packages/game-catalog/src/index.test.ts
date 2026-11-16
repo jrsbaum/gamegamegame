@@ -11,6 +11,7 @@ describe('GameGameGame catalog', () => {
       'caracol.gamegamegame.site',
       'lafarmer.gamegamegame.site',
       'lafarmer2.gamegamegame.site',
+      'agents.gamegamegame.site',
     ]);
     expect(new Set(GAME_CATALOG.map((game) => game.domain)).size).toBe(GAME_CATALOG.length);
   });
@@ -19,6 +20,7 @@ describe('GameGameGame catalog', () => {
     expect(listGames()).toBe(GAME_CATALOG);
     expect(getGame('lafarmer')).toMatchObject({ title: 'LaFarmer 1', status: 'active' });
     expect(getGame('lafarmer2')).toMatchObject({ title: 'LaFarmer 2', status: 'active' });
+    expect(getGame('agent-village')).toMatchObject({ title: 'Vila dos Agentes', status: 'active' });
     expect(hasCatalogGame('caracol')).toBe(true);
     expect(hasCatalogGame('unknown')).toBe(false);
   });
@@ -29,5 +31,6 @@ describe('GameGameGame catalog', () => {
       kind: 'link',
       href: 'https://impostor.gamegamegame.site/',
     });
+    expect(getGameNavigation('agent-village')).toEqual({ kind: 'link', href: 'https://agents.gamegamegame.site/' });
   });
 });

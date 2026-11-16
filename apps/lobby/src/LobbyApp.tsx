@@ -2,7 +2,15 @@ import type { JSX } from 'react';
 import { GAME_CATALOG, getGameNavigation, type CatalogGame } from '../../../packages/game-catalog/src';
 import { GAME_STATUS_LABELS } from '../../../packages/platform-contracts/src';
 
-function GameCard({ game, index }: { game: CatalogGame; index: number }): JSX.Element {
+export function resolveGameHref(href: string, hostname: string): string {
+  if (hostname !== 'hml.gamegamegame.site') return href;
+  const destination = new URL(href);
+  if (destination.protocol !== 'https:' || !destination.hostname.endsWith('.gamegamegame.site') || destination.hostname.startsWith('hml-')) return href;
+  destination.hostname = `hml-${destination.hostname}`;
+  return destination.toString();
+}
+
+function GameCard({ game, index, hostname }: { game: CatalogGame; index: number; hostname: string }): JSX.Element {
   const navigation = getGameNavigation(game.id);
   const className = `lobby-game-card ${game.tone}${navigation.kind === 'unavailable' ? ' is-unavailable' : ''}`;
   const content = (
@@ -21,7 +29,7 @@ function GameCard({ game, index }: { game: CatalogGame; index: number }): JSX.El
   );
 
   if (navigation.kind === 'link') {
-    return <a className={className} href={navigation.href}>{content}</a>;
+    return <a className={className} href={resolveGameHref(navigation.href, hostname)}>{content}</a>;
   }
 
   return (
@@ -31,7 +39,7 @@ function GameCard({ game, index }: { game: CatalogGame; index: number }): JSX.El
   );
 }
 
-export function LobbyApp(): JSX.Element {
+export function LobbyApp({ hostname = typeof window === 'undefined' ? '' : window.location.hostname }: { hostname?: string } = {}): JSX.Element {
   return (
     <main className="lobby-shell">
       <div className="lobby-orbit lobby-orbit-one" aria-hidden="true" />
@@ -47,14 +55,14 @@ export function LobbyApp(): JSX.Element {
 
       <section className="lobby-hero" aria-labelledby="lobby-title">
         <div className="lobby-hero-copy">
-          <p className="eyebrow">Uma plataforma · cinco jeitos de brincar</p>
+          <p className="eyebrow">Uma plataforma · {GAME_CATALOG.length} jeitos de brincar</p>
           <h1 id="lobby-title">Escolha uma<br /><span>confusão.</span></h1>
           <p className="lobby-lede">Cada jogo tem sua própria mesa, seu próprio ritmo e seu próprio deploy. Entre direto onde a brincadeira começa.</p>
           <div className="lobby-rule" aria-hidden="true"><span /> <small>sem cadastro para as salas</small></div>
         </div>
 
         <div className="lobby-games" aria-label="Jogos disponíveis">
-          {GAME_CATALOG.map((game, index) => <GameCard game={game} index={index} key={game.id} />)}
+          {GAME_CATALOG.map((game, index) => <GameCard game={game} index={index} hostname={hostname} key={game.id} />)}
         </div>
       </section>
 

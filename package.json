@@ -8,6 +8,7 @@
     "apps/whoami",
     "apps/impostor",
     "apps/caracol",
+    "apps/agent-village",
     "packages/*"
   ],
   "scripts": {

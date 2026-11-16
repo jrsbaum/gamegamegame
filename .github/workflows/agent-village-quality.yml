@@ -1,0 +1,57 @@
+name: Vila dos Agentes quality
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - apps/agent-village/**
+      - packages/game-catalog/**
+      - packages/platform-contracts/**
+      - apps/lobby/**
+      - package.json
+      - package-lock.json
+      - infra/docker/agent-village.Dockerfile
+      - infra/dokploy/agent-village/**
+      - .github/workflows/agent-village-quality.yml
+  pull_request:
+    branches: [main, staging]
+    paths:
+      - apps/agent-village/**
+      - packages/game-catalog/**
+      - packages/platform-contracts/**
+      - apps/lobby/**
+      - package.json
+      - package-lock.json
+      - infra/docker/agent-village.Dockerfile
+      - infra/dokploy/agent-village/**
+      - .github/workflows/agent-village-quality.yml
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test --workspace apps/agent-village
+      - run: npm run build --workspace apps/agent-village
+      - run: npx vitest run --config apps/lobby/vite.config.ts packages/game-catalog/src/index.test.ts packages/platform-contracts/src/index.test.ts apps/lobby/src/LobbyApp.test.tsx
+      - run: npm run build --workspace apps/lobby
+      - name: Validate production and HML Compose
+        env:
+          AGENT_VILLAGE_INVITE_CODE: ci-structural-example-only
+          AGENT_VILLAGE_DATA_VOLUME: ci-agent-village
+          AGENT_VILLAGE_HML_INVITE_CODE: ci-hml-structural-example-only
+          AGENT_VILLAGE_HML_DATA_VOLUME: ci-hml-agent-village
+        run: |
+          docker compose -f infra/dokploy/agent-village/docker-compose.yml config --quiet
+          docker compose -f infra/dokploy/agent-village/docker-compose.staging.yml config --quiet
+      - name: Build isolated image
+        run: docker build -f infra/docker/agent-village.Dockerfile -t agent-village:ci apps/agent-village

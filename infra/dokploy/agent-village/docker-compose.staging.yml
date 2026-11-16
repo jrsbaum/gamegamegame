@@ -1,0 +1,45 @@
+name: gamegamegame-agent-village-hml
+
+services:
+  village:
+    build:
+      context: ../../../apps/agent-village
+      dockerfile: ../../infra/docker/agent-village.Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3340
+      PUBLIC_ORIGIN: https://hml-agents.gamegamegame.site
+      INVITE_CODE: ${AGENT_VILLAGE_HML_INVITE_CODE:?Set a separate private HML invite code (16+ characters)}
+      DATA_FILE: /data/village.json
+      TRUST_PROXY: "true"
+    volumes:
+      - agent-village-hml-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3340/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    networks: [proxy]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: dokploy-network
+      traefik.http.routers.gamegamegame-agent-village-hml.rule: Host(`hml-agents.gamegamegame.site`)
+      traefik.http.routers.gamegamegame-agent-village-hml.entrypoints: websecure
+      traefik.http.routers.gamegamegame-agent-village-hml.tls: "true"
+      traefik.http.routers.gamegamegame-agent-village-hml.tls.certresolver: letsencrypt
+      traefik.http.services.gamegamegame-agent-village-hml.loadbalancer.server.port: "3340"
+
+volumes:
+  agent-village-hml-data:
+    external: true
+    name: ${AGENT_VILLAGE_HML_DATA_VOLUME:?Confirm the dedicated HML volume name}
+
+networks:
+  proxy:
+    external: true
+    name: dokploy-network
